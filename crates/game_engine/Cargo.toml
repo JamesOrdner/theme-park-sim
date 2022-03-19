@@ -1,0 +1,21 @@
+[package]
+name = "game_engine"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+winit = "0.26.1"
+
+event = { path = "../event" }
+frame_buffer = { path = "../frame_buffer" }
+game_controller = { path = "../game_controller" }
+game_input = { path = "../game_input" }
+sys_static_mesh = { path = "../sys_static_mesh" }
+system_interfaces = { path = "../system_interfaces" }
+task_executor = { path = "../task_executor" }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+metal = { path = "../metal" }
+
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+vulkan = { path = "../vulkan" }

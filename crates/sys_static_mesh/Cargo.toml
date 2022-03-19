@@ -1,0 +1,9 @@
+[package]
+name = "sys_static_mesh"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+event = { path = "../event" }
+frame_buffer = { path = "../frame_buffer" }
+system_interfaces = { path = "../system_interfaces" }

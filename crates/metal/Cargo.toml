@@ -1,0 +1,11 @@
+[package]
+name = "metal"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+cocoa = "0.24.0"
+metal = "0.23.1"
+winit = "0.26.1"
+
+frame_buffer = { path = "../frame_buffer" }

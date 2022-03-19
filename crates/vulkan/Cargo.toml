@@ -1,0 +1,9 @@
+[package]
+name = "vulkan"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+winit = "0.26.1"
+
+frame_buffer = { path = "../frame_buffer" }

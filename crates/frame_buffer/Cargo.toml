@@ -1,0 +1,4 @@
+[package]
+name = "frame_buffer"
+version = "0.0.0"
+edition = "2021"

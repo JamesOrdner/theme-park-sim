@@ -1,0 +1,10 @@
+[package]
+name = "game_input"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+nalgebra-glm = "0.16.0"
+winit = "0.26.1"
+
+event = { path = "../event" }
