@@ -84,6 +84,8 @@ impl FixedUpdateTask for FixedUpdateData {
                 entity.z += 1.0;
                 println!("{:?}", entity);
             }
+
+            self.modified_entities.clear();
         })
     }
 }

@@ -3,7 +3,8 @@ use std::{
     mem,
     num::NonZeroUsize,
     pin::Pin,
-    task::{Context, Poll},
+    ptr,
+    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
     thread,
 };
 
@@ -16,14 +17,31 @@ impl TaskExecutor {
         thread::available_parallelism().expect("unable to determine available parallelism")
     }
 
-    pub fn execute_blocking<T>(&mut self, _task: &mut T)
+    pub fn execute_blocking<T>(&mut self, task: &mut T)
     where
         T: Future<Output = ()> + Send,
     {
         // SAFETY: future guaranteed not to move in the scope of this function
-        let _task = unsafe { Pin::new_unchecked(_task) };
+        let mut task = unsafe { Pin::new_unchecked(task) };
+
+        let waker = RawWaker::new(ptr::null_mut() as *mut (), &VTABLE);
+        let waker = unsafe { Waker::from_raw(waker) };
+
+        match task.as_mut().poll(&mut Context::from_waker(&waker)) {
+            Poll::Ready(_) => {}
+            Poll::Pending => panic!(),
+        }
     }
 }
+
+const VTABLE: RawWakerVTable = {
+    RawWakerVTable::new(
+        |s| RawWaker::new(s as *const (), &VTABLE),
+        |_| {},
+        |_| {},
+        |_| {},
+    )
+};
 
 pub struct FixedTaskExecutor;
 
