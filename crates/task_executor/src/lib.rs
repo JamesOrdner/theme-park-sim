@@ -9,6 +9,7 @@ use std::{
 };
 
 use task::FixedUpdateTask;
+use update_buffer::UpdateBufferRef;
 
 pub struct TaskExecutor;
 
@@ -32,6 +33,13 @@ impl TaskExecutor {
             Poll::Pending => panic!(),
         }
     }
+
+    pub fn fixed_update_executor(&self, update_buffer: UpdateBufferRef) -> FixedUpdateExecutor {
+        FixedUpdateExecutor {
+            _executor: self,
+            update_buffer,
+        }
+    }
 }
 
 const VTABLE: RawWakerVTable = {
@@ -43,16 +51,21 @@ const VTABLE: RawWakerVTable = {
     )
 };
 
-pub struct FixedTaskExecutor;
+pub struct FixedUpdateExecutor<'a> {
+    _executor: &'a TaskExecutor,
+    update_buffer: UpdateBufferRef,
+}
 
-impl FixedTaskExecutor {
+impl<'a> FixedUpdateExecutor<'a> {
     pub fn execute_async<T>(&self, mut task: Pin<Box<T>>) -> FixedUpdateTaskHandle<T>
     where
         T: FixedUpdateTask,
     {
         // SAFETY: future will only ever be polled as long as the task data is
         // valid. We also ensure that the future is dropped before the data.
-        let future = unsafe { mem::transmute(task.as_mut().task()) };
+        let future = unsafe { mem::transmute(task.as_mut().task(&self.update_buffer)) };
+
+        // TODO: start task processing
 
         FixedUpdateTaskHandle {
             future,

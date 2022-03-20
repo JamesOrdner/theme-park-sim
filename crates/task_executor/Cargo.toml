@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 task = { path = "../task" }
+update_buffer = { path = "../update_buffer" }

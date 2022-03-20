@@ -306,6 +306,7 @@ dependencies = [
  "system_interfaces",
  "system_static_mesh",
  "task_executor",
+ "update_buffer",
  "vulkan",
  "winit",
 ]
@@ -878,6 +879,7 @@ dependencies = [
  "system_interfaces",
  "task",
  "task_executor",
+ "update_buffer",
 ]
 
 [[package]]
@@ -885,6 +887,7 @@ name = "task"
 version = "0.0.0"
 dependencies = [
  "atomic_refcell",
+ "update_buffer",
 ]
 
 [[package]]
@@ -892,6 +895,7 @@ name = "task_executor"
 version = "0.0.0"
 dependencies = [
  "task",
+ "update_buffer",
 ]
 
 [[package]]
@@ -934,6 +938,10 @@ name = "unicode-xid"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
+
+[[package]]
+name = "update_buffer"
+version = "0.1.0"
 
 [[package]]
 name = "vulkan"

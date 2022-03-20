@@ -29,7 +29,14 @@ pub struct EventWriter<'a> {
 
 impl EventWriter<'_> {
     pub fn push_event(&self, event: FrameEvent) {
+        // SAFETY: no other borrow with this swap index aliases. This is guaranteed because
+        // a &mut EventManager is required to modify the swap index, which is impossible
+        // while an EventReader or EventWriter exists. It IS possible, however, for EventManager
+        // to immutably access this buffer while we mutably access it, so TODO: combine the reader
+        // and writer into one, and require a mutable borrow of EventManager to gain access to this
+        // combo reader/writer. This then guarantees that EventManager cannot do anything simultaneously.
         FRAME_EVENT_BUFFER.with(|queue| unsafe {
+            debug_assert!(!queue.get().is_null());
             queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].push(event)
         });
     }

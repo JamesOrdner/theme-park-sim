@@ -3,7 +3,8 @@ use frame_buffer::{FrameBuffer, FrameBufferWriter};
 use game_controller::GameController;
 use game_input::{GameInput, GameInputInterface};
 use system_interfaces::SystemInterfaces;
-use task_executor::{FixedTaskExecutor, TaskExecutor};
+use task_executor::{FixedUpdateExecutor, TaskExecutor};
+use update_buffer::UpdateBuffer;
 use winit::{event::WindowEvent, window::Window};
 
 #[cfg(target_vendor = "apple")]
@@ -18,6 +19,7 @@ pub struct GameEngine {
     input: GameInput,
     systems: Systems,
     task_executor: TaskExecutor,
+    update_buffer: UpdateBuffer,
 
     #[cfg(target_vendor = "apple")]
     graphics: Metal,
@@ -35,6 +37,8 @@ impl GameEngine {
 
         let input = GameInput::new(window.inner_size());
 
+        let update_buffer = UpdateBuffer::new(thread_count);
+
         #[cfg(target_vendor = "apple")]
         let graphics = Metal::new(window);
 
@@ -47,6 +51,7 @@ impl GameEngine {
             input,
             systems: Systems::new(),
             task_executor: TaskExecutor,
+            update_buffer,
             graphics,
         }
     }
@@ -58,9 +63,18 @@ impl GameEngine {
 
     pub fn frame(&mut self) {
         // fixed-timestep systems
-        {
-            let mut fixed_updates_task = self.systems.update_fixed(&FixedTaskExecutor);
-            self.task_executor.execute_blocking(&mut fixed_updates_task);
+        for _ in 0..3 {
+            {
+                let mut await_task = self.systems.await_fixed();
+                self.task_executor.execute_blocking(&mut await_task);
+            }
+
+            self.update_buffer.swap_buffers();
+
+            let update_buffer = self.update_buffer.borrow();
+
+            let fixed_update_executor = self.task_executor.fixed_update_executor(update_buffer);
+            self.systems.update_fixed(&fixed_update_executor);
         }
 
         let event_reader = self.event_manager.event_reader();
@@ -101,10 +115,14 @@ impl Systems {
         Default::default()
     }
 
-    async fn update_fixed(&mut self, task_executor: &FixedTaskExecutor) {
-        let static_mesh_task = self.static_mesh.update_fixed(task_executor);
+    async fn await_fixed(&mut self) {
+        let static_mesh_task = self.static_mesh.await_fixed();
 
         static_mesh_task.await;
+    }
+
+    fn update_fixed(&mut self, task_executor: &FixedUpdateExecutor<'_>) {
+        self.static_mesh.update_fixed(task_executor);
     }
 
     async fn update_frame(

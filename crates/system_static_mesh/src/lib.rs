@@ -5,12 +5,23 @@ use frame_buffer::FrameBufferWriter;
 use nalgebra_glm::Vec3;
 use system_interfaces::SystemInterfaces;
 use task::FixedUpdateTask;
-use task_executor::{FixedTaskExecutor, FixedUpdateTaskHandle};
+use task_executor::{FixedUpdateExecutor, FixedUpdateTaskHandle};
+use update_buffer::UpdateBufferRef;
 
-#[derive(Default)]
 pub struct System {
-    frame: FrameUpdateData,
-    fixed_task_handle: Option<FixedUpdateTaskHandle<FixedUpdateData>>,
+    frame_data: FrameUpdateData,
+    fixed_data: Option<Pin<Box<FixedUpdateData>>>,
+    fixed_update_task_handle: Option<FixedUpdateTaskHandle<FixedUpdateData>>,
+}
+
+impl Default for System {
+    fn default() -> Self {
+        Self {
+            frame_data: Default::default(),
+            fixed_data: Some(Box::pin(Default::default())),
+            fixed_update_task_handle: None,
+        }
+    }
 }
 
 impl System {
@@ -21,7 +32,7 @@ impl System {
         frame_buffer_writer: FrameBufferWriter,
         system_interfaces: SystemInterfaces<'_>,
     ) {
-        self.frame
+        self.frame_data
             .update(
                 event_reader,
                 event_writer,
@@ -31,15 +42,18 @@ impl System {
             .await;
     }
 
-    pub async fn update_fixed(&mut self, executor: &FixedTaskExecutor) {
-        let mut fixed_data = match self.fixed_task_handle.take() {
-            Some(task_handle) => task_handle.await,
-            None => Box::pin(Default::default()),
-        };
+    pub async fn await_fixed(&mut self) {
+        if let Some(task_handle) = self.fixed_update_task_handle.take() {
+            self.fixed_data = Some(task_handle.await);
+        }
+    }
 
-        fixed_data.prepare_update(&mut self.frame);
+    pub fn update_fixed(&mut self, executor: &FixedUpdateExecutor<'_>) {
+        let mut fixed = self.fixed_data.take().unwrap();
 
-        self.fixed_task_handle = Some(executor.execute_async(fixed_data));
+        fixed.prepare_update(&mut self.frame_data);
+
+        self.fixed_update_task_handle = Some(executor.execute_async(fixed));
     }
 }
 
@@ -56,7 +70,11 @@ impl FrameUpdateData {
         _frame_buffer_writer: FrameBufferWriter,
         _system_interfaces: SystemInterfaces<'_>,
     ) {
-        self.modified_entities.push(Vec3::zeros());
+        if let Some(entity) = self.modified_entities.first() {
+            println!("{:?}", entity);
+        } else {
+            self.modified_entities.push(Vec3::zeros());
+        }
     }
 }
 
@@ -76,16 +94,21 @@ impl FixedUpdateData {
 }
 
 impl FixedUpdateTask for FixedUpdateData {
-    fn task<'a>(mut self: Pin<&'a mut Self>) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+    fn task<'a>(
+        mut self: Pin<&'a mut Self>,
+        update_buffer: &UpdateBufferRef,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        let update_buffer = update_buffer.clone();
+
         Box::pin(async move {
             if let Some(entity) = self.modified_entities.first_mut() {
                 entity.x += 1.0;
                 entity.y += 1.0;
                 entity.z += 1.0;
-                println!("{:?}", entity);
             }
 
-            self.modified_entities.clear();
+            // placeholder
+            update_buffer.read();
         })
     }
 }

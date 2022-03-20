@@ -10,5 +10,8 @@ impl Vulkan {
         Self {}
     }
 
-    pub async fn frame(&mut self, _frame_buffer: &FrameBuffer) {}
+    pub async fn frame(&mut self, _frame_buffer: &FrameBuffer) {
+        // artificial vsync
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
 }

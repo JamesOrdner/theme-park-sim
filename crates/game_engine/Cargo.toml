@@ -13,6 +13,7 @@ game_input = { path = "../game_input" }
 system_static_mesh = { path = "../system_static_mesh" }
 system_interfaces = { path = "../system_interfaces" }
 task_executor = { path = "../task_executor" }
+update_buffer = { path = "../update_buffer" }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 metal = { path = "../metal" }
