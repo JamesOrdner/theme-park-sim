@@ -10,5 +10,5 @@ impl Vulkan {
         Self {}
     }
 
-    pub fn frame(&mut self, _frame_buffer: &FrameBuffer) {}
+    pub async fn frame(&mut self, _frame_buffer: &FrameBuffer) {}
 }

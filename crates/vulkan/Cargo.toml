@@ -3,7 +3,7 @@ name = "vulkan"
 version = "0.0.0"
 edition = "2021"
 
-[dependencies]
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
 winit = "0.26.1"
 
 frame_buffer = { path = "../frame_buffer" }
