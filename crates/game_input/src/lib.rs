@@ -1,6 +1,6 @@
 use event::{Event, EventWriter};
-use nalgebra_glm::Vec2;
-use winit::event::WindowEvent;
+use nalgebra_glm::{vec2, Vec2};
+use winit::{dpi::PhysicalSize, event::WindowEvent};
 
 pub struct GameInputInterface<'a> {
     input: &'a GameInput,
@@ -16,19 +16,40 @@ impl<'a> GameInputInterface<'a> {
     }
 }
 
-#[derive(Default)]
 pub struct GameInput {
+    window_size: Vec2,
     cursor_position: Vec2,
+    cursor_moved: bool,
 }
 
 impl GameInput {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new(window_size: PhysicalSize<u32>) -> Self {
+        Self {
+            window_size: vec2(window_size.width as f32, window_size.height as f32),
+            cursor_position: Vec2::zeros(),
+            cursor_moved: false,
+        }
     }
 
-    pub fn handle_input(&mut self, _event: WindowEvent) {}
+    pub fn handle_input(&mut self, event: WindowEvent) {
+        match event {
+            WindowEvent::Resized(size) => {
+                self.window_size.x = size.width as f32;
+                self.window_size.y = size.height as f32;
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_position.x = position.x as f32;
+                self.cursor_position.y = position.y as f32;
+                self.cursor_moved = true;
+            }
+            _ => {}
+        }
+    }
 
     pub fn update(&mut self, event_writer: EventWriter) {
-        event_writer.push_event(Event::CursorMoved);
+        if self.cursor_moved {
+            event_writer.push_event(Event::CursorMoved);
+            self.cursor_moved = false;
+        }
     }
 }

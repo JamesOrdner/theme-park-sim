@@ -33,6 +33,8 @@ impl GameEngine {
         let mut event_manager = EventManager::new(thread_count);
         event_manager.assign_thread_event_buffer(0);
 
+        let input = GameInput::new(window.inner_size());
+
         #[cfg(target_vendor = "apple")]
         let graphics = Metal::new(window);
 
@@ -42,7 +44,7 @@ impl GameEngine {
         Self {
             event_manager,
             game_controller: GameController,
-            input: GameInput::new(),
+            input,
             systems: Systems::new(),
             task_executor: TaskExecutor,
             graphics,
