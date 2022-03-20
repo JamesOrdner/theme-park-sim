@@ -3,7 +3,7 @@ use frame_buffer::{FrameBuffer, FrameBufferWriter};
 use game_controller::GameController;
 use game_input::{GameInput, GameInputInterface};
 use system_interfaces::SystemInterfaces;
-use task_executor::TaskExecutor;
+use task_executor::{FixedTaskExecutor, TaskExecutor};
 use winit::{event::WindowEvent, window::Window};
 
 #[cfg(target_vendor = "apple")]
@@ -28,7 +28,7 @@ pub struct GameEngine {
 
 impl GameEngine {
     pub fn new(window: &Window) -> Self {
-        let thread_count = TaskExecutor::max_parallelism();
+        let thread_count = TaskExecutor::available_parallelism();
 
         let mut event_manager = EventManager::new(thread_count);
         event_manager.assign_thread_event_buffer(0);
@@ -58,9 +58,10 @@ impl GameEngine {
 
     pub fn frame(&mut self) {
         // fixed-timestep systems
-        //   await previous update if time for next update
-        //   write event changes
-        //   begin processing next update
+        {
+            let mut fixed_updates_task = self.systems.update_fixed(&FixedTaskExecutor);
+            self.task_executor.execute_blocking(&mut fixed_updates_task);
+        }
 
         let event_reader = self.event_manager.event_reader();
         let event_writer = self.event_manager.event_writer();
@@ -68,7 +69,7 @@ impl GameEngine {
         self.input.update(event_writer);
         self.game_controller.update(event_reader);
 
-        self.event_manager.step();
+        self.event_manager.swap_buffers();
 
         let input_interface = GameInputInterface::new(&self.input);
         let event_reader = self.event_manager.event_reader();
@@ -92,12 +93,18 @@ impl GameEngine {
 
 #[derive(Default)]
 struct Systems {
-    static_mesh: sys_static_mesh::System,
+    static_mesh: system_static_mesh::System,
 }
 
 impl Systems {
     fn new() -> Self {
         Default::default()
+    }
+
+    async fn update_fixed(&mut self, task_executor: &FixedTaskExecutor) {
+        let static_mesh_task = self.static_mesh.update_fixed(task_executor);
+
+        static_mesh_task.await;
     }
 
     async fn update_frame(

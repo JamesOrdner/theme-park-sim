@@ -1,7 +1,7 @@
 [package]
-name = "task_executor"
+name = "task"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-task = { path = "../task" }
+atomic_refcell = "0.1.8"

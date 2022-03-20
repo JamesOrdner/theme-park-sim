@@ -1,12 +1,22 @@
 use std::{cell::Cell, marker::PhantomData, num::NonZeroUsize, ptr};
 
 #[derive(Clone, Copy)]
-pub enum Event {
+pub enum FrameEvent {
     CursorMoved,
+    Location(u32),
+}
+
+#[derive(Clone, Copy)]
+pub enum FixedEvent {
+    Location(u32),
 }
 
 thread_local! {
-    static EVENT_BUFFER: Cell<*mut [Vec<Event>; 2]> = Cell::new(ptr::null_mut())
+    static FRAME_EVENT_BUFFER: Cell<*mut [Vec<FrameEvent>; 2]> = Cell::new(ptr::null_mut())
+}
+
+thread_local! {
+    static FIXED_EVENT_BUFFER: Cell<*mut [Vec<FixedEvent>; 2]> = Cell::new(ptr::null_mut())
 }
 
 /// Writer for new events
@@ -18,8 +28,8 @@ pub struct EventWriter<'a> {
 }
 
 impl EventWriter<'_> {
-    pub fn push_event(&self, event: Event) {
-        EVENT_BUFFER.with(|queue| unsafe {
+    pub fn push_event(&self, event: FrameEvent) {
+        FRAME_EVENT_BUFFER.with(|queue| unsafe {
             queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].push(event)
         });
     }
@@ -33,7 +43,7 @@ pub struct EventReader<'a> {
 }
 
 pub struct EventManager {
-    event_buffers: Vec<[Vec<Event>; 2]>,
+    event_buffers: Vec<[Vec<FrameEvent>; 2]>,
     swap_index: bool,
 }
 
@@ -46,7 +56,7 @@ impl EventManager {
     }
 
     pub fn assign_thread_event_buffer(&mut self, thread_index: usize) {
-        EVENT_BUFFER.with(|queue| queue.set(&mut self.event_buffers[thread_index]));
+        FRAME_EVENT_BUFFER.with(|queue| queue.set(&mut self.event_buffers[thread_index]));
     }
 
     pub fn event_reader(&self) -> EventReader {
@@ -62,7 +72,7 @@ impl EventManager {
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn swap_buffers(&mut self) {
         self.swap_index = !self.swap_index;
 
         for event_buffer in &mut self.event_buffers {

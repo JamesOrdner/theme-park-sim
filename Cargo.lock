@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic_refcell"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73b5e5f48b927f04e952dedc932f31995a65a0bf65ec971c74436e51bf6e970d"
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -297,8 +303,8 @@ dependencies = [
  "game_controller",
  "game_input",
  "metal 0.0.0",
- "sys_static_mesh",
  "system_interfaces",
+ "system_static_mesh",
  "task_executor",
  "vulkan",
  "winit",
@@ -856,15 +862,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sys_static_mesh"
-version = "0.0.0"
-dependencies = [
- "event",
- "frame_buffer",
- "system_interfaces",
-]
-
-[[package]]
 name = "system_interfaces"
 version = "0.0.0"
 dependencies = [
@@ -872,8 +869,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "system_static_mesh"
+version = "0.0.0"
+dependencies = [
+ "event",
+ "frame_buffer",
+ "nalgebra-glm",
+ "system_interfaces",
+ "task",
+ "task_executor",
+]
+
+[[package]]
+name = "task"
+version = "0.0.0"
+dependencies = [
+ "atomic_refcell",
+]
+
+[[package]]
 name = "task_executor"
 version = "0.0.0"
+dependencies = [
+ "task",
+]
 
 [[package]]
 name = "thiserror"
