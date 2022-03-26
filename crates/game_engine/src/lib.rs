@@ -104,10 +104,10 @@ impl GameEngine {
     }
 
     fn update_game_state(&mut self) {
-        let event_delegate = self.event_manager.borrow();
+        let mut event_delegate = self.event_manager.sync_delegate();
 
-        self.input.update(&event_delegate);
-        self.game_controller.update(&event_delegate);
+        self.input.update(&mut event_delegate);
+        self.game_controller.update(&mut event_delegate);
     }
 
     fn update_and_render_frame(&mut self) {
@@ -115,7 +115,7 @@ impl GameEngine {
         let frame_buffer_delegate = self.frame_buffer_manager.delegate();
         let frame_buffer_reader = frame_buffer_delegate.reader();
         let frame_buffer_writer = frame_buffer_delegate.writer();
-        let event_delegate = self.event_manager.borrow();
+        let event_delegate = self.event_manager.async_delegate();
 
         let frame_task = async {
             let frame_update_task = self.frame_update_systems.update(

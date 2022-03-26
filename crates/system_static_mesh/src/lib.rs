@@ -1,6 +1,6 @@
 use std::mem;
 
-use event::EventDelegate;
+use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::FrameBufferWriter;
 use nalgebra_glm::Vec3;
 use system_interfaces::SystemInterfaces;
@@ -15,10 +15,16 @@ pub struct FrameData {
 impl FrameData {
     pub async fn update(
         &mut self,
-        _event_delegate: &EventDelegate<'_>,
+        event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &FrameBufferWriter<'_>,
         _system_interfaces: SystemInterfaces<'_>,
     ) {
+        for event in event_delegate.game_events() {
+            if let GameEvent::Spawn(id) = event {
+                println!("spawning {id}");
+            }
+        }
+
         if let Some(entity) = self.modified_entities.first() {
             self.location = *entity;
             frame_buffer.push_location(*entity);

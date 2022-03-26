@@ -1,4 +1,4 @@
-use event::EventDelegate;
+use event::AsyncEventDelegate;
 use frame_buffer::FrameBufferWriter;
 use game_input::GameInputInterface;
 use system_interfaces::SystemInterfaces;
@@ -15,7 +15,7 @@ impl FrameUpdateSystems {
 
     pub async fn update(
         &mut self,
-        event_delegate: &EventDelegate<'_>,
+        event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &FrameBufferWriter<'_>,
         input_interface: GameInputInterface<'_>,
     ) {
