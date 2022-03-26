@@ -24,12 +24,14 @@ impl FixedUpdate {
         }
     }
 
-    pub fn swap(&mut self, frame_systems: &mut FrameUpdateSystems) {
+    pub async fn swap(&mut self, frame_systems: &mut FrameUpdateSystems) {
         let fixed_systems = self.systems.as_mut().unwrap();
 
-        fixed_systems
+        let static_mesh_task = fixed_systems
             .static_mesh
             .swap(&mut frame_systems.static_mesh);
+
+        static_mesh_task.await;
     }
 
     pub fn execute(&mut self, task_executor: &mut TaskExecutor) {
@@ -40,7 +42,9 @@ impl FixedUpdate {
 
             let update_buffer = fixed_systems.update_buffer.borrow();
 
-            fixed_systems.static_mesh.update(update_buffer).await;
+            let static_mesh_task = fixed_systems.static_mesh.update(update_buffer);
+
+            static_mesh_task.await;
 
             fixed_systems
         };

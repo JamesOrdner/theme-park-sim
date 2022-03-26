@@ -95,7 +95,8 @@ impl GameEngine {
 
             // if last iteration, swap with frame updates
             if now.duration_since(self.last_fixed_update_instant) < FIXED_TIMESTEP {
-                self.fixed_update.swap(&mut self.frame_update_systems);
+                let swap_task = self.fixed_update.swap(&mut self.frame_update_systems);
+                self.task_executor.execute_blocking(swap_task);
             }
 
             self.fixed_update.execute(&mut self.task_executor);

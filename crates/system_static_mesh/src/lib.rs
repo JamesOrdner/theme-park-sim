@@ -35,7 +35,7 @@ pub struct FixedData {
 }
 
 impl FixedData {
-    pub fn swap(&mut self, frame_data: &mut FrameData) {
+    pub async fn swap(&mut self, frame_data: &mut FrameData) {
         // swap network updates to frame update, and local changes to fixed update thread
         mem::swap(
             &mut self.modified_entities,
