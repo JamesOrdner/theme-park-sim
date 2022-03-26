@@ -65,10 +65,8 @@ impl GameEngine {
     pub fn frame(&mut self) {
         const NUM_FIXED_UPDATES: usize = 1;
         for i in 0..NUM_FIXED_UPDATES {
-            {
-                let mut await_task = self.fixed_update.await_prev_update();
-                self.task_executor.execute_blocking(&mut await_task);
-            }
+            let await_task = self.fixed_update.await_prev_update();
+            self.task_executor.execute_blocking(await_task);
 
             // if last iteration, swap with frame updates
             if i == NUM_FIXED_UPDATES - 1 {
@@ -90,7 +88,7 @@ impl GameEngine {
         let event_reader = self.event_manager.event_reader();
         let event_writer = self.event_manager.event_writer();
 
-        let mut frame_task = async {
+        let frame_task = async {
             self.frame_update_systems
                 .update(
                     event_reader,
@@ -102,6 +100,6 @@ impl GameEngine {
             self.graphics.frame(&FrameBuffer).await;
         };
 
-        self.task_executor.execute_blocking(&mut frame_task);
+        self.task_executor.execute_blocking(frame_task);
     }
 }

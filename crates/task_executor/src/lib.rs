@@ -14,12 +14,13 @@ impl TaskExecutor {
         thread::available_parallelism().expect("unable to determine available parallelism")
     }
 
-    pub fn execute_blocking<T>(&mut self, task: &mut T)
+    pub fn execute_blocking<T>(&mut self, mut task: T)
     where
         T: Future<Output = ()> + Send,
     {
-        // SAFETY: future guaranteed not to move in the scope of this function
-        let mut task = unsafe { Pin::new_unchecked(task) };
+        // SAFETY: task ownership has been moved to this function, so we
+        // are able to guarantee that it will not move after it is pinned
+        let mut task = unsafe { Pin::new_unchecked(&mut task) };
 
         let waker = RawWaker::new(ptr::null_mut() as *mut (), &VTABLE);
         let waker = unsafe { Waker::from_raw(waker) };
