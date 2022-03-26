@@ -1,15 +1,11 @@
 use std::{
     future::Future,
-    mem,
     num::NonZeroUsize,
     pin::Pin,
     ptr,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
     thread,
 };
-
-use task::FixedUpdateTask;
-use update_buffer::UpdateBufferRef;
 
 pub struct TaskExecutor;
 
@@ -34,10 +30,14 @@ impl TaskExecutor {
         }
     }
 
-    pub fn fixed_update_executor(&self, update_buffer: UpdateBufferRef) -> FixedUpdateExecutor {
-        FixedUpdateExecutor {
-            _executor: self,
-            update_buffer,
+    pub fn execute_async<T, U>(&mut self, task: T) -> FixedUpdateTaskHandle<U>
+    where
+        T: Future<Output = Box<U>> + Send + 'static,
+    {
+        // TODO: start task processing
+
+        FixedUpdateTaskHandle {
+            future: Box::pin(task),
         }
     }
 }
@@ -51,40 +51,16 @@ const VTABLE: RawWakerVTable = {
     )
 };
 
-pub struct FixedUpdateExecutor<'a> {
-    _executor: &'a TaskExecutor,
-    update_buffer: UpdateBufferRef,
-}
-
-impl<'a> FixedUpdateExecutor<'a> {
-    pub fn execute_async<T>(&self, mut task: Pin<Box<T>>) -> FixedUpdateTaskHandle<T>
-    where
-        T: FixedUpdateTask,
-    {
-        // SAFETY: future will only ever be polled as long as the task data is
-        // valid. We also ensure that the future is dropped before the data.
-        let future = unsafe { mem::transmute(task.as_mut().task(&self.update_buffer)) };
-
-        // TODO: start task processing
-
-        FixedUpdateTaskHandle {
-            future,
-            data: Some(task),
-        }
-    }
-}
-
 pub struct FixedUpdateTaskHandle<T> {
-    future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-    data: Option<Pin<Box<T>>>,
+    future: Pin<Box<dyn Future<Output = Box<T>> + Send + 'static>>,
 }
 
 impl<T> Future for FixedUpdateTaskHandle<T> {
-    type Output = Pin<Box<T>>;
+    type Output = Box<T>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.future.as_mut().poll(cx) {
-            Poll::Ready(_) => Poll::Ready(self.data.take().unwrap()),
+            Poll::Ready(result) => Poll::Ready(result),
             Poll::Pending => Poll::Pending,
         }
     }

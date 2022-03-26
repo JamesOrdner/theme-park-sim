@@ -5,5 +5,3 @@ edition = "2021"
 
 [dependencies]
 atomic_refcell = "0.1.8"
-
-update_buffer = { path = "../update_buffer" }

@@ -877,8 +877,6 @@ dependencies = [
  "frame_buffer",
  "nalgebra-glm",
  "system_interfaces",
- "task",
- "task_executor",
  "update_buffer",
 ]
 
@@ -887,16 +885,11 @@ name = "task"
 version = "0.0.0"
 dependencies = [
  "atomic_refcell",
- "update_buffer",
 ]
 
 [[package]]
 name = "task_executor"
 version = "0.0.0"
-dependencies = [
- "task",
- "update_buffer",
-]
 
 [[package]]
 name = "thiserror"

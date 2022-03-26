@@ -2,7 +2,3 @@
 name = "task_executor"
 version = "0.0.0"
 edition = "2021"
-
-[dependencies]
-task = { path = "../task" }
-update_buffer = { path = "../update_buffer" }

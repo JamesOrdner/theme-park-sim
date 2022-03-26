@@ -1,12 +1,9 @@
 use std::{
-    future::Future,
     ops::{Deref, DerefMut},
-    pin::Pin,
     sync::Arc,
 };
 
 use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
-use update_buffer::UpdateBufferRef;
 
 #[derive(Clone)]
 pub struct SharedData<T0 = (), T1 = (), const T1_LEN: usize = 0> {
@@ -140,12 +137,4 @@ impl<'a, T> DerefMut for SharedDataRefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut *self.inner
     }
-}
-
-pub trait FixedUpdateTask {
-    /// eventually can be async fn
-    fn task<'a>(
-        self: Pin<&'a mut Self>,
-        update_buffer: &UpdateBufferRef,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 }
