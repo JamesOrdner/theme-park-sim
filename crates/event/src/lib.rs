@@ -8,11 +8,6 @@ pub enum FrameEvent {
 }
 
 #[derive(Clone, Copy)]
-pub enum FixedEvent {
-    Location(u32),
-}
-
-#[derive(Clone, Copy)]
 pub enum GameEvent {
     Spawn(u32),
     Despawn(u32),
@@ -26,10 +21,6 @@ pub enum InputEvent {
 
 thread_local! {
     static FRAME_EVENT_BUFFER: Cell<*mut [Vec<FrameEvent>; 2]> = Cell::new(ptr::null_mut())
-}
-
-thread_local! {
-    static FIXED_EVENT_BUFFER: Cell<*mut [Vec<FixedEvent>; 2]> = Cell::new(ptr::null_mut())
 }
 
 pub struct AsyncEventDelegate<'a> {
