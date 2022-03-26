@@ -9,9 +9,9 @@ use task_executor::{FixedUpdateExecutor, FixedUpdateTaskHandle};
 use update_buffer::UpdateBufferRef;
 
 pub struct System {
-    frame_data: FrameUpdateData,
-    fixed_data: Option<Pin<Box<FixedUpdateData>>>,
-    fixed_update_task_handle: Option<FixedUpdateTaskHandle<FixedUpdateData>>,
+    frame_data: FrameData,
+    fixed_data: Option<Pin<Box<FixedData>>>,
+    fixed_update_task_handle: Option<FixedUpdateTaskHandle<FixedData>>,
 }
 
 impl Default for System {
@@ -58,11 +58,12 @@ impl System {
 }
 
 #[derive(Default)]
-struct FrameUpdateData {
+struct FrameData {
+    locations: Vec<Vec3>,
     modified_entities: Vec<Vec3>,
 }
 
-impl FrameUpdateData {
+impl FrameData {
     async fn update(
         &mut self,
         _event_reader: EventReader<'_>,
@@ -71,20 +72,27 @@ impl FrameUpdateData {
         _system_interfaces: SystemInterfaces<'_>,
     ) {
         if let Some(entity) = self.modified_entities.first() {
+            if let Some(location) = self.locations.first_mut() {
+                *location = *entity;
+            } else {
+                self.locations.push(*entity);
+            }
+
             println!("{:?}", entity);
-        } else {
-            self.modified_entities.push(Vec3::zeros());
         }
+
+        self.modified_entities.clear();
+        self.modified_entities.push(Vec3::zeros());
     }
 }
 
 #[derive(Default)]
-struct FixedUpdateData {
+struct FixedData {
     modified_entities: Vec<Vec3>,
 }
 
-impl FixedUpdateData {
-    fn prepare_update(&mut self, frame_data: &mut FrameUpdateData) {
+impl FixedData {
+    fn prepare_update(&mut self, frame_data: &mut FrameData) {
         // swap network updates to frame update, and local changes to fixed update thread
         mem::swap(
             &mut self.modified_entities,
@@ -93,7 +101,7 @@ impl FixedUpdateData {
     }
 }
 
-impl FixedUpdateTask for FixedUpdateData {
+impl FixedUpdateTask for FixedData {
     fn task<'a>(
         mut self: Pin<&'a mut Self>,
         update_buffer: &UpdateBufferRef,
