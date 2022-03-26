@@ -19,7 +19,6 @@ thread_local! {
     static FIXED_EVENT_BUFFER: Cell<*mut [Vec<FixedEvent>; 2]> = Cell::new(ptr::null_mut())
 }
 
-#[derive(Clone, Copy)]
 pub struct EventDelegate<'a> {
     swap_index: bool,
     // borrow ensures update index is not incremented while writer exists
@@ -32,7 +31,6 @@ impl EventDelegate<'_> {
         // EventManager is mutably borrowed as long as an EventDelegate exists, preventing
         // modification of the swap index or simultaneous access to the event buffers
         FRAME_EVENT_BUFFER.with(|queue| unsafe {
-            debug_assert!(!queue.get().is_null());
             queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].push(event)
         });
     }

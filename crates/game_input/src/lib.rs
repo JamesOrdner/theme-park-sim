@@ -46,7 +46,7 @@ impl GameInput {
         }
     }
 
-    pub fn update(&mut self, event_delegate: EventDelegate) {
+    pub fn update(&mut self, event_delegate: &EventDelegate) {
         if self.cursor_moved {
             event_delegate.push_event(FrameEvent::CursorMoved);
             self.cursor_moved = false;

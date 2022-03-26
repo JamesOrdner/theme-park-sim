@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use event::EventManager;
-use frame_buffer::{FrameBuffer, FrameBufferWriter};
+use frame_buffer::FrameBufferManager;
 use futures::pin_mut;
 use game_controller::GameController;
 use game_input::{GameInput, GameInputInterface};
@@ -23,6 +23,7 @@ use vulkan::Vulkan;
 pub struct GameEngine {
     event_manager: EventManager,
     fixed_update: FixedUpdate,
+    frame_buffer_manager: FrameBufferManager,
     frame_update_systems: FrameUpdateSystems,
     game_controller: GameController,
     input: GameInput,
@@ -43,6 +44,9 @@ impl GameEngine {
         let mut event_manager = EventManager::new(thread_count);
         event_manager.assign_thread_event_buffer(0);
 
+        let mut frame_buffer_manager = FrameBufferManager::new(thread_count);
+        frame_buffer_manager.assign_thread_frame_buffer(0);
+
         let input = GameInput::new(window.inner_size());
 
         #[cfg(target_vendor = "apple")]
@@ -54,6 +58,7 @@ impl GameEngine {
         Self {
             event_manager,
             fixed_update: FixedUpdate::new(thread_count),
+            frame_buffer_manager,
             frame_update_systems: FrameUpdateSystems::new(),
             game_controller: GameController,
             input,
@@ -74,6 +79,7 @@ impl GameEngine {
         self.update_game_state();
 
         self.event_manager.swap();
+        self.frame_buffer_manager.swap();
 
         self.update_and_render_frame();
     }
@@ -99,22 +105,25 @@ impl GameEngine {
     fn update_game_state(&mut self) {
         let event_delegate = self.event_manager.borrow();
 
-        self.input.update(event_delegate);
-        self.game_controller.update(event_delegate);
+        self.input.update(&event_delegate);
+        self.game_controller.update(&event_delegate);
     }
 
     fn update_and_render_frame(&mut self) {
         let input_interface = GameInputInterface::new(&self.input);
+        let frame_buffer_delegate = self.frame_buffer_manager.delegate();
+        let frame_buffer_reader = frame_buffer_delegate.reader();
+        let frame_buffer_writer = frame_buffer_delegate.writer();
         let event_delegate = self.event_manager.borrow();
 
         let frame_task = async {
             let frame_update_task = self.frame_update_systems.update(
-                event_delegate,
-                FrameBufferWriter,
+                &event_delegate,
+                &frame_buffer_writer,
                 input_interface,
             );
 
-            let graphics_task = self.graphics.frame(&FrameBuffer);
+            let graphics_task = self.graphics.frame(&frame_buffer_reader);
 
             pin_mut!(frame_update_task);
             pin_mut!(graphics_task);

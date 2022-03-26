@@ -15,8 +15,8 @@ impl FrameUpdateSystems {
 
     pub async fn update(
         &mut self,
-        event_delegate: EventDelegate<'_>,
-        frame_buffer_writer: FrameBufferWriter,
+        event_delegate: &EventDelegate<'_>,
+        frame_buffer: &FrameBufferWriter<'_>,
         input_interface: GameInputInterface<'_>,
     ) {
         let system_interfaces = SystemInterfaces {
@@ -25,7 +25,7 @@ impl FrameUpdateSystems {
 
         let static_mesh_task =
             self.static_mesh
-                .update(event_delegate, frame_buffer_writer, system_interfaces);
+                .update(event_delegate, frame_buffer, system_interfaces);
 
         static_mesh_task.await;
     }

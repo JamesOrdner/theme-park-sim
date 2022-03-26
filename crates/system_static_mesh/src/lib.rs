@@ -15,15 +15,16 @@ pub struct FrameData {
 impl FrameData {
     pub async fn update(
         &mut self,
-        _event_delegate: EventDelegate<'_>,
-        _frame_buffer_writer: FrameBufferWriter,
+        _event_delegate: &EventDelegate<'_>,
+        frame_buffer: &FrameBufferWriter<'_>,
         _system_interfaces: SystemInterfaces<'_>,
     ) {
         if let Some(entity) = self.modified_entities.first() {
             self.location = *entity;
+            frame_buffer.push_location(*entity);
         }
 
-        println!("{:?}", self.location);
+        self.modified_entities.clear();
     }
 }
 
