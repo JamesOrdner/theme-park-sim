@@ -66,3 +66,11 @@ impl<T> Future for FixedUpdateTaskHandle<T> {
         }
     }
 }
+
+pub async fn parallel<const N: usize>(futures: [Pin<&mut (dyn Future<Output = ()> + Send)>; N]) {
+    // TODO: parallel task execution
+
+    for future in futures {
+        future.await;
+    }
+}

@@ -1,4 +1,4 @@
-use event::{EventWriter, FrameEvent};
+use event::{EventDelegate, FrameEvent};
 use nalgebra_glm::{vec2, Vec2};
 use winit::{dpi::PhysicalSize, event::WindowEvent};
 
@@ -46,9 +46,9 @@ impl GameInput {
         }
     }
 
-    pub fn update(&mut self, event_writer: EventWriter) {
+    pub fn update(&mut self, event_delegate: EventDelegate) {
         if self.cursor_moved {
-            event_writer.push_event(FrameEvent::CursorMoved);
+            event_delegate.push_event(FrameEvent::CursorMoved);
             self.cursor_moved = false;
         }
     }

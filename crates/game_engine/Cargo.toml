@@ -4,12 +4,14 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+futures = { version = "0.3.21", default-features = false }
 winit = "0.26.1"
 
 event = { path = "../event" }
 frame_buffer = { path = "../frame_buffer" }
 game_controller = { path = "../game_controller" }
 game_input = { path = "../game_input" }
+game_system = { path = "../game_system" }
 system_static_mesh = { path = "../system_static_mesh" }
 system_interfaces = { path = "../system_interfaces" }
 task_executor = { path = "../task_executor" }

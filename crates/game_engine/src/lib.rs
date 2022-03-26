@@ -1,8 +1,12 @@
+use std::time::Instant;
+
 use event::EventManager;
 use frame_buffer::{FrameBuffer, FrameBufferWriter};
+use futures::pin_mut;
 use game_controller::GameController;
 use game_input::{GameInput, GameInputInterface};
-use task_executor::TaskExecutor;
+use game_system::FIXED_TIMESTEP;
+use task_executor::{parallel, TaskExecutor};
 use winit::{event::WindowEvent, window::Window};
 
 use crate::{fixed_update::FixedUpdate, frame_update::FrameUpdateSystems};
@@ -22,6 +26,7 @@ pub struct GameEngine {
     frame_update_systems: FrameUpdateSystems,
     game_controller: GameController,
     input: GameInput,
+    last_fixed_update_instant: Instant,
     task_executor: TaskExecutor,
 
     #[cfg(target_vendor = "apple")]
@@ -52,6 +57,7 @@ impl GameEngine {
             frame_update_systems: FrameUpdateSystems::new(),
             game_controller: GameController,
             input,
+            last_fixed_update_instant: Instant::now(),
             task_executor: TaskExecutor,
             graphics,
         }
@@ -63,41 +69,57 @@ impl GameEngine {
     }
 
     pub fn frame(&mut self) {
-        const NUM_FIXED_UPDATES: usize = 1;
-        for i in 0..NUM_FIXED_UPDATES {
+        self.update_fixed();
+
+        self.update_game_state();
+
+        self.event_manager.swap();
+
+        self.update_and_render_frame();
+    }
+
+    fn update_fixed(&mut self) {
+        let now = Instant::now();
+
+        while now.duration_since(self.last_fixed_update_instant) >= FIXED_TIMESTEP {
+            self.last_fixed_update_instant += FIXED_TIMESTEP;
+
             let await_task = self.fixed_update.await_prev_update();
             self.task_executor.execute_blocking(await_task);
 
             // if last iteration, swap with frame updates
-            if i == NUM_FIXED_UPDATES - 1 {
+            if now.duration_since(self.last_fixed_update_instant) < FIXED_TIMESTEP {
                 self.fixed_update.swap(&mut self.frame_update_systems);
             }
 
             self.fixed_update.execute(&mut self.task_executor);
         }
+    }
 
-        let event_reader = self.event_manager.event_reader();
-        let event_writer = self.event_manager.event_writer();
+    fn update_game_state(&mut self) {
+        let event_delegate = self.event_manager.borrow();
 
-        self.input.update(event_writer);
-        self.game_controller.update(event_reader);
+        self.input.update(event_delegate);
+        self.game_controller.update(event_delegate);
+    }
 
-        self.event_manager.swap_buffers();
-
+    fn update_and_render_frame(&mut self) {
         let input_interface = GameInputInterface::new(&self.input);
-        let event_reader = self.event_manager.event_reader();
-        let event_writer = self.event_manager.event_writer();
+        let event_delegate = self.event_manager.borrow();
 
         let frame_task = async {
-            self.frame_update_systems
-                .update(
-                    event_reader,
-                    event_writer,
-                    FrameBufferWriter,
-                    input_interface,
-                )
-                .await;
-            self.graphics.frame(&FrameBuffer).await;
+            let frame_update_task = self.frame_update_systems.update(
+                event_delegate,
+                FrameBufferWriter,
+                input_interface,
+            );
+
+            let graphics_task = self.graphics.frame(&FrameBuffer);
+
+            pin_mut!(frame_update_task);
+            pin_mut!(graphics_task);
+
+            parallel([frame_update_task, graphics_task]).await;
         };
 
         self.task_executor.execute_blocking(frame_task);

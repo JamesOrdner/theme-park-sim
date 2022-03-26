@@ -1,6 +1,6 @@
 use std::mem;
 
-use event::{EventReader, EventWriter};
+use event::EventDelegate;
 use frame_buffer::FrameBufferWriter;
 use nalgebra_glm::Vec3;
 use system_interfaces::SystemInterfaces;
@@ -15,8 +15,7 @@ pub struct FrameData {
 impl FrameData {
     pub async fn update(
         &mut self,
-        _event_reader: EventReader<'_>,
-        _event_writer: EventWriter<'_>,
+        _event_delegate: EventDelegate<'_>,
         _frame_buffer_writer: FrameBufferWriter,
         _system_interfaces: SystemInterfaces<'_>,
     ) {
