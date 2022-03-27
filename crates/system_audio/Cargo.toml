@@ -1,0 +1,12 @@
+[package]
+name = "system_audio"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+cpal = "0.13.5"
+log = "0.4.16"
+ringbuf = "0.2.7"
+
+event = { path = "../event" }
+game_system = { path = "../game_system" }

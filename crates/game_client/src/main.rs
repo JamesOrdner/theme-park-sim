@@ -1,4 +1,5 @@
 use game_engine::GameEngine;
+use log::LevelFilter;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -13,6 +14,12 @@ pub struct GameClient;
 
 impl GameClient {
     pub fn start() {
+        #[cfg(debug_assertions)]
+        env_logger::builder().filter_level(LevelFilter::Info).init();
+
+        #[cfg(not(debug_assertions))]
+        env_logger::builder().filter_level(LevelFilter::Warn).init();
+
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new().build(&event_loop).unwrap();
 

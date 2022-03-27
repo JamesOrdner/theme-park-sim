@@ -1,6 +1,7 @@
 use std::num::NonZeroUsize;
 
-use task_executor::{FixedUpdateTaskHandle, TaskExecutor};
+use futures::pin_mut;
+use task_executor::{parallel, FixedUpdateTaskHandle, TaskExecutor};
 use update_buffer::UpdateBuffer;
 
 use crate::frame_update::FrameUpdateSystems;
@@ -27,11 +28,15 @@ impl FixedUpdate {
     pub async fn swap(&mut self, frame_systems: &mut FrameUpdateSystems) {
         let fixed_systems = self.systems.as_mut().unwrap();
 
+        let audio_task = fixed_systems.audio.swap(&mut frame_systems.audio);
         let static_mesh_task = fixed_systems
             .static_mesh
             .swap(&mut frame_systems.static_mesh);
 
-        static_mesh_task.await;
+        pin_mut!(audio_task);
+        pin_mut!(static_mesh_task);
+
+        parallel([audio_task, static_mesh_task]).await;
     }
 
     pub fn execute(&mut self, task_executor: &mut TaskExecutor) {
@@ -42,9 +47,15 @@ impl FixedUpdate {
 
             let update_buffer = fixed_systems.update_buffer.borrow();
 
-            let static_mesh_task = fixed_systems.static_mesh.update(update_buffer);
+            {
+                let audio_task = fixed_systems.audio.update();
+                let static_mesh_task = fixed_systems.static_mesh.update(update_buffer);
 
-            static_mesh_task.await;
+                pin_mut!(audio_task);
+                pin_mut!(static_mesh_task);
+
+                parallel([audio_task, static_mesh_task]).await;
+            }
 
             fixed_systems
         };
@@ -55,6 +66,7 @@ impl FixedUpdate {
 
 struct FixedUpdateSystems {
     update_buffer: UpdateBuffer,
+    audio: system_audio::FixedData,
     static_mesh: system_static_mesh::FixedData,
 }
 
@@ -62,6 +74,7 @@ impl FixedUpdateSystems {
     fn new(thread_count: NonZeroUsize) -> Self {
         Self {
             update_buffer: UpdateBuffer::new(thread_count),
+            audio: Default::default(),
             static_mesh: Default::default(),
         }
     }
