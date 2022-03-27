@@ -116,8 +116,9 @@ impl EventManager {
         }
     }
 
-    pub fn assign_thread_event_buffer(&mut self, thread_index: usize) {
-        FRAME_EVENT_BUFFER.with(|queue| queue.set(&mut self.event_buffers[thread_index]));
+    pub fn assign_thread_event_buffer(&self, thread_index: usize) {
+        FRAME_EVENT_BUFFER
+            .with(|queue| queue.set(self.event_buffers[thread_index].as_ptr() as *mut _));
     }
 
     pub fn sync_delegate(&mut self) -> SyncEventDelegate {

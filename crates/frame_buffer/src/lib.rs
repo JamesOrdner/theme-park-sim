@@ -84,8 +84,9 @@ impl FrameBufferManager {
         }
     }
 
-    pub fn assign_thread_frame_buffer(&mut self, thread_index: usize) {
-        FRAME_BUFFER_ENTRY_BUFFER.with(|queue| queue.set(&mut self.event_buffers[thread_index]));
+    pub fn assign_thread_frame_buffer(&self, thread_index: usize) {
+        FRAME_BUFFER_ENTRY_BUFFER
+            .with(|queue| queue.set(self.event_buffers[thread_index].as_ptr() as *mut _));
     }
 
     pub fn delegate(&mut self) -> FrameBufferDelegate {

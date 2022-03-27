@@ -41,13 +41,16 @@ impl GameEngine {
     pub fn new(window: &Window) -> Self {
         let thread_count = TaskExecutor::available_parallelism();
 
-        let mut event_manager = EventManager::new(thread_count);
-        event_manager.assign_thread_event_buffer(0);
+        let event_manager = EventManager::new(thread_count);
 
-        let mut frame_buffer_manager = FrameBufferManager::new(thread_count);
-        frame_buffer_manager.assign_thread_frame_buffer(0);
+        let frame_buffer_manager = FrameBufferManager::new(thread_count);
 
         let input = GameInput::new(window.inner_size());
+
+        let task_executor = TaskExecutor::new(thread_count, &|thread_index| {
+            event_manager.assign_thread_event_buffer(thread_index);
+            frame_buffer_manager.assign_thread_frame_buffer(thread_index);
+        });
 
         #[cfg(target_vendor = "apple")]
         let graphics = Metal::new(window);
@@ -63,7 +66,7 @@ impl GameEngine {
             game_controller: GameController,
             input,
             last_fixed_update_instant: Instant::now(),
-            task_executor: TaskExecutor,
+            task_executor,
             graphics,
         }
     }
