@@ -16,18 +16,13 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use futures::pin_mut;
-
 enum ChannelMessage {
-    Task(*mut Task),
+    Task(&'static mut Task<'static>),
     Join,
 }
 
-// SAFETY: Task is Send
-unsafe impl Send for ChannelMessage {}
-
 struct BlockingTaskInfo {
-    task: AtomicPtr<Task>,
+    task: AtomicPtr<Task<'static>>,
     cvar: Condvar,
     completed: Mutex<bool>,
 }
@@ -40,15 +35,15 @@ pub struct TaskExecutor {
 
 impl TaskExecutor {
     pub fn new(thread_count: NonZeroUsize, register_thread: &(dyn Fn(usize) + Sync)) -> Self {
-        let (task_sender, task_receiver) = mpsc::channel();
-        let task_receiver = Arc::new(Mutex::new(task_receiver));
-
         // SAFETY: cast to 'static is safe because we do not return until
         // all the threads have run the registration callback
         let register_thread =
             unsafe { mem::transmute::<_, &'static (dyn Fn(usize) + Sync)>(register_thread) };
 
         let thread_init = Arc::new((Mutex::new(0), Condvar::new()));
+
+        let (task_sender, task_receiver) = mpsc::channel();
+        let task_receiver = Arc::new(Mutex::new(task_receiver));
 
         let blocking_task_info = Arc::new(BlockingTaskInfo {
             task: AtomicPtr::new(ptr::null_mut()),
@@ -59,8 +54,9 @@ impl TaskExecutor {
         let mut thread_join_handles = Vec::with_capacity(thread_count.get());
 
         for thread_index in 0..thread_count.get() {
-            let task_receiver = task_receiver.clone();
             let thread_init = thread_init.clone();
+
+            let task_receiver = task_receiver.clone();
             let blocking_task_info = blocking_task_info.clone();
 
             thread_join_handles.push(thread::spawn(move || {
@@ -72,14 +68,11 @@ impl TaskExecutor {
                 loop {
                     let task = task_receiver.lock().unwrap().recv().unwrap();
                     match task {
-                        ChannelMessage::Task(task_ptr) => {
-                            // SAFETY: we only ever create a Task reference here
-                            let task = unsafe { task_ptr.as_mut().unwrap() };
+                        ChannelMessage::Task(task) => {
                             if task.poll_future()
-                                && task_ptr == blocking_task_info.task.load(Ordering::Acquire)
+                                && task as *mut _ == blocking_task_info.task.load(Ordering::Acquire)
                             {
-                                let mut task_guard = blocking_task_info.completed.lock().unwrap();
-                                *task_guard = true;
+                                *blocking_task_info.completed.lock().unwrap() = true;
                                 blocking_task_info.cvar.notify_one();
                             }
                         }
@@ -89,7 +82,7 @@ impl TaskExecutor {
             }));
         }
 
-        let _guard = thread_init
+        let _init_guard = thread_init
             .1
             .wait_while(thread_init.0.lock().unwrap(), |count| {
                 *count < thread_count.get()
@@ -107,22 +100,16 @@ impl TaskExecutor {
         thread::available_parallelism().expect("unable to determine available parallelism")
     }
 
-    pub fn execute_blocking<T>(&mut self, future: T)
-    where
-        T: Future<Output = ()> + Send,
-    {
-        pin_mut!(future);
+    pub fn execute_blocking(&mut self, future: Pin<&mut (dyn Future<Output = ()> + Send)>) {
+        let mut task = Task::new(future);
 
-        let task = Task::new(future);
-        pin_mut!(task); // do we need to pin this?
+        // SAFETY: we block until the future completes, and shadow the
+        // task variable to ensure that we don't alias mutable borrows
+        let task: &'static mut _ = unsafe { mem::transmute(&mut task) };
 
-        self.blocking_task_info
-            .task
-            .store(&mut *task, Ordering::Release);
+        self.blocking_task_info.task.store(task, Ordering::Release);
 
-        self.task_sender
-            .send(ChannelMessage::Task(&mut *task))
-            .unwrap();
+        self.task_sender.send(ChannelMessage::Task(task)).unwrap();
 
         let mut task_guard = self
             .blocking_task_info
@@ -192,24 +179,21 @@ pub async fn parallel<const N: usize>(futures: [Pin<&mut (dyn Future<Output = ()
     }
 }
 
-struct Task {
-    future: Pin<&'static mut (dyn Future<Output = ()> + Send)>,
+struct Task<'a> {
+    future: Pin<&'a mut (dyn Future<Output = ()> + Send)>,
     _join_handle: *const (),
 }
 
-impl Task {
-    fn new(future: Pin<&mut (dyn Future<Output = ()> + Send)>) -> Self {
-        // SAFETY: all task-running functions join futures before returning
-        let future: Pin<&'static mut _> = unsafe { mem::transmute(future) };
+unsafe impl<'a> Send for Task<'a> {}
 
+impl<'a> Task<'a> {
+    fn new(future: Pin<&'a mut (dyn Future<Output = ()> + Send)>) -> Self {
         Self {
             future,
             _join_handle: ptr::null(),
         }
     }
-}
 
-impl Task {
     fn poll_future(&mut self) -> bool {
         let waker = RawWaker::new(ptr::null_mut() as *mut (), &VTABLE);
         let waker = unsafe { Waker::from_raw(waker) };

@@ -1370,9 +1370,6 @@ dependencies = [
 [[package]]
 name = "task_executor"
 version = "0.0.0"
-dependencies = [
- "futures",
-]
 
 [[package]]
 name = "termcolor"

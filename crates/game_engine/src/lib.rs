@@ -93,12 +93,16 @@ impl GameEngine {
         while now.duration_since(self.last_fixed_update_instant) >= FIXED_TIMESTEP {
             self.last_fixed_update_instant += FIXED_TIMESTEP;
 
-            let await_task = self.fixed_update.await_prev_update();
-            self.task_executor.execute_blocking(await_task);
+            {
+                let await_task = self.fixed_update.await_prev_update();
+                pin_mut!(await_task);
+                self.task_executor.execute_blocking(await_task);
+            }
 
             // if last iteration, swap with frame updates
             if now.duration_since(self.last_fixed_update_instant) < FIXED_TIMESTEP {
                 let swap_task = self.fixed_update.swap(&mut self.frame_update_systems);
+                pin_mut!(swap_task);
                 self.task_executor.execute_blocking(swap_task);
             }
 
@@ -135,6 +139,7 @@ impl GameEngine {
             parallel([frame_update_task, graphics_task]).await;
         };
 
+        pin_mut!(frame_task);
         self.task_executor.execute_blocking(frame_task);
     }
 }
