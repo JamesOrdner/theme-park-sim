@@ -2,8 +2,9 @@
 #![allow(clippy::mutex_atomic)]
 
 use std::{
+    cell::Cell,
     future::Future,
-    mem,
+    mem::{self, MaybeUninit},
     num::NonZeroUsize,
     pin::Pin,
     ptr,
@@ -16,9 +17,15 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use spin::Mutex as SpinMutex;
+
 enum ChannelMessage {
     Task(&'static mut Task<'static>),
     Join,
+}
+
+thread_local! {
+    static TASK_SENDER: Cell<*const Sender<ChannelMessage>> = Cell::new(ptr::null())
 }
 
 struct BlockingTaskInfo {
@@ -56,6 +63,7 @@ impl TaskExecutor {
         for thread_index in 0..thread_count.get() {
             let thread_init = thread_init.clone();
 
+            let task_sender = task_sender.clone();
             let task_receiver = task_receiver.clone();
             let blocking_task_info = blocking_task_info.clone();
 
@@ -64,6 +72,8 @@ impl TaskExecutor {
                 *thread_init.0.lock().unwrap() += 1;
                 thread_init.1.notify_one();
                 drop(thread_init);
+
+                TASK_SENDER.with(|sender| sender.set(&task_sender));
 
                 loop {
                     let task = task_receiver.lock().unwrap().recv().unwrap();
@@ -101,10 +111,16 @@ impl TaskExecutor {
     }
 
     pub fn execute_blocking(&mut self, future: Pin<&mut (dyn Future<Output = ()> + Send)>) {
-        let mut task = Task::new(future);
+        let join_handle = TaskJoinHandle::new();
+
+        let mut task = Task {
+            future,
+            join_handle: &join_handle,
+        };
 
         // SAFETY: we block until the future completes, and shadow the
-        // task variable to ensure that we don't alias mutable borrows
+        // task variable to ensure that we don't alias mutable borrows.
+        // TODO: where else might join_handle be referenced from?
         let task: &'static mut _ = unsafe { mem::transmute(&mut task) };
 
         self.blocking_task_info.task.store(task, Ordering::Release);
@@ -147,10 +163,25 @@ impl Drop for TaskExecutor {
     }
 }
 
+fn task_clone(s: *const Task) -> RawWaker {
+    RawWaker::new(s as *const (), &VTABLE)
+}
+
+fn task_wake(task: *const Task) {
+    // SAFETY: this is still an exclusive reference. It has only
+    // been cast to *const to please the waker API
+    let task = unsafe { (task as *mut Task).as_mut().unwrap() };
+
+    TASK_SENDER.with(|sender| {
+        let sender = unsafe { sender.get().as_ref().unwrap_unchecked() };
+        sender.send(ChannelMessage::Task(task)).unwrap();
+    });
+}
+
 const VTABLE: RawWakerVTable = {
     RawWakerVTable::new(
-        |s| RawWaker::new(s as *const (), &VTABLE),
-        |_| {},
+        |s| task_clone(s as *const Task),
+        |s| task_wake(s as *const Task),
         |_| {},
         |_| {},
     )
@@ -172,35 +203,104 @@ impl<T> Future for FixedUpdateTaskHandle<T> {
 }
 
 pub async fn parallel<const N: usize>(futures: [Pin<&mut (dyn Future<Output = ()> + Send)>; N]) {
-    // TODO: parallel task execution
+    let join_handles = [0; N].map(|_| TaskJoinHandle::new());
 
-    for future in futures {
-        future.await;
+    let mut tasks = unsafe {
+        let mut tasks: [MaybeUninit<_>; N] = MaybeUninit::uninit().assume_init();
+        for (i, future) in futures.into_iter().enumerate() {
+            tasks[i].write(Task {
+                future,
+                join_handle: &join_handles[i],
+            });
+        }
+        tasks.map(|a| a.assume_init())
+    };
+
+    let tasks: [&'static mut _; N] = unsafe {
+        let mut task_refs: [MaybeUninit<_>; N] = MaybeUninit::uninit().assume_init();
+        for (i, task) in tasks.iter_mut().enumerate() {
+            // SAFETY: the task is awaited before returning
+            task_refs[i].write(mem::transmute(task));
+        }
+        task_refs.map(|a| a.assume_init())
+    };
+
+    TASK_SENDER.with(|sender| {
+        let sender = unsafe { sender.get().as_ref().unwrap_unchecked() };
+        for task in tasks.into_iter() {
+            sender.send(ChannelMessage::Task(task)).unwrap();
+        }
+    });
+
+    for join_handle in join_handles {
+        join_handle.await;
     }
 }
 
 struct Task<'a> {
     future: Pin<&'a mut (dyn Future<Output = ()> + Send)>,
-    _join_handle: *const (),
+    join_handle: &'a TaskJoinHandle,
 }
 
 unsafe impl<'a> Send for Task<'a> {}
 
 impl<'a> Task<'a> {
-    fn new(future: Pin<&'a mut (dyn Future<Output = ()> + Send)>) -> Self {
-        Self {
-            future,
-            _join_handle: ptr::null(),
-        }
-    }
-
     fn poll_future(&mut self) -> bool {
-        let waker = RawWaker::new(ptr::null_mut() as *mut (), &VTABLE);
+        let waker = RawWaker::new(self as *mut Task as *const (), &VTABLE);
         let waker = unsafe { Waker::from_raw(waker) };
 
         match self.future.as_mut().poll(&mut Context::from_waker(&waker)) {
-            Poll::Ready(_) => true,
-            Poll::Pending => panic!(),
+            Poll::Ready(_) => {
+                let mut join_handle = self.join_handle.inner.lock();
+
+                join_handle.done = true;
+
+                if let Some(waker) = join_handle.waker.take() {
+                    waker.wake();
+                }
+
+                true
+            }
+            Poll::Pending => false,
+        }
+    }
+}
+
+struct TaskJoinHandle {
+    // must be an Arc so that it has a stable memory location, even when
+    // a task's stack space/context is switched across await points
+    inner: Arc<SpinMutex<TaskJoinHandleInner>>,
+}
+
+struct TaskJoinHandleInner {
+    done: bool,
+    waker: Option<Waker>,
+}
+
+impl TaskJoinHandle {
+    fn new() -> Self {
+        let inner = TaskJoinHandleInner {
+            done: false,
+            waker: None,
+        };
+
+        TaskJoinHandle {
+            inner: Arc::new(SpinMutex::new(inner)),
+        }
+    }
+}
+
+impl Future for TaskJoinHandle {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut inner = self.inner.lock();
+
+        if inner.done {
+            Poll::Ready(())
+        } else {
+            inner.waker = Some(cx.waker().clone());
+            Poll::Pending
         }
     }
 }
