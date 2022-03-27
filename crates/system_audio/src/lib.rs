@@ -1,8 +1,8 @@
-use std::{cmp::min, f32::consts::PI};
+use std::{cmp::min, f32::consts::PI, slice};
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    BufferSize, SampleFormat, SampleRate, Stream, StreamError, SupportedBufferSize,
+    BufferSize, SampleFormat, SampleRate, Stream, SupportedBufferSize,
 };
 use event::AsyncEventDelegate;
 use game_system::FIXED_TIMESTEP;
@@ -34,13 +34,9 @@ unsafe impl Send for SendStream {}
 
 pub struct FixedData {
     sample_rate: u32,
-    audio_producer: Producer<f32>,
+    audio_producer: Producer<[f32; 2]>,
     play_click: u32,
     _stream: SendStream,
-}
-
-fn err_fn(err: StreamError) {
-    eprintln!("an error occurred on the output audio stream: {err}");
 }
 
 impl Default for FixedData {
@@ -63,8 +59,7 @@ impl Default for FixedData {
 
         // we always want to have FIXED_TIMESTEP * buffer_size ready to play
         let ringbuf_len = FIXED_TIMESTEP.as_millis() as u32 * sample_rate / 1000 + buffer_size;
-        let stereo_ringbuf_len = ringbuf_len as usize * 2;
-        let (audio_producer, audio_consumer) = RingBuffer::new(stereo_ringbuf_len).split();
+        let (audio_producer, audio_consumer) = RingBuffer::new(ringbuf_len as usize).split();
 
         let mut audio_player = AudioPlayer::new(audio_consumer);
 
@@ -74,7 +69,7 @@ impl Default for FixedData {
             .build_output_stream(
                 &config,
                 move |data, _| audio_player.data_callback(data),
-                err_fn,
+                |err| eprintln!("an error occurred on the output audio stream: {err}"),
             )
             .unwrap();
 
@@ -98,40 +93,44 @@ impl FixedData {
     }
 
     pub async fn update(&mut self) {
-        for _ in 0..self.audio_producer.remaining() / 2 {
+        for _ in 0..self.audio_producer.remaining() {
             if self.play_click > 0 {
                 self.play_click -= 1;
 
                 let phase = 2.0 * PI * self.play_click as f32 / self.sample_rate as f32;
                 let val = (880.0 * phase).sin();
-                self.audio_producer.push(val).unwrap();
-                self.audio_producer.push(val).unwrap();
+                self.audio_producer.push([val; 2]).unwrap();
             } else {
-                self.audio_producer.push(0.0).unwrap();
-                self.audio_producer.push(0.0).unwrap();
+                self.audio_producer.push([0.0; 2]).unwrap();
             }
         }
     }
 }
 
 struct AudioPlayer {
-    audio_consumer: Consumer<f32>,
+    audio_consumer: Consumer<[f32; 2]>,
 }
 
 impl AudioPlayer {
-    fn new(audio_consumer: Consumer<f32>) -> Self {
+    fn new(audio_consumer: Consumer<[f32; 2]>) -> Self {
         Self { audio_consumer }
     }
 
     fn data_callback(&mut self, buffer: &mut [f32]) {
+        let buffer = as_chunks_mut(buffer);
+
         let num_read = self.audio_consumer.pop_slice(buffer);
-        buffer[num_read..].fill(0.0);
+        buffer[num_read..].fill([0.0; 2]);
 
         if num_read != buffer.len() {
-            log::warn!(
-                "audio running {} frames behind",
-                (buffer.len() - num_read) / 2
-            );
+            log::warn!("audio running {} frames behind", buffer.len() - num_read);
         }
     }
+}
+
+fn as_chunks_mut(slice: &mut [f32]) -> &mut [[f32; 2]] {
+    debug_assert_eq!(slice.len() % 2, 0);
+    let stereo_len = slice.len() / 2;
+    // SAFETY: stereo_len * 2 is guaranteed to not exceed original slice len
+    unsafe { slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), stereo_len) }
 }
