@@ -4,6 +4,7 @@
 use std::{
     cell::Cell,
     future::Future,
+    iter::zip,
     mem::{self, MaybeUninit},
     num::NonZeroUsize,
     pin::Pin,
@@ -111,11 +112,12 @@ impl TaskExecutor {
     }
 
     pub fn execute_blocking(&mut self, future: Pin<&mut (dyn Future<Output = ()> + Send)>) {
-        let join_handle = TaskJoinHandle::new();
+        let join_handle = SpinMutex::default();
+        let join_handle = unsafe { Pin::new_unchecked(&join_handle) };
 
         let mut task = Task {
             future,
-            join_handle: &join_handle,
+            join_handle,
         };
 
         // SAFETY: we block until the future completes, and shadow the
@@ -202,44 +204,52 @@ impl<T> Future for FixedUpdateTaskHandle<T> {
     }
 }
 
+macro_rules! pin_array {
+    ($arr: ident, $len: expr) => {
+        let $arr = {
+            unsafe {
+                let mut x: [MaybeUninit<_>; $len] = MaybeUninit::uninit().assume_init();
+                for (i, a) in $arr.iter().enumerate() {
+                    x[i].write(Pin::new_unchecked(a));
+                }
+                x.map(|a| a.assume_init())
+            }
+        };
+    };
+}
+
 pub async fn parallel<const N: usize>(futures: [Pin<&mut (dyn Future<Output = ()> + Send)>; N]) {
-    let join_handles = [0; N].map(|_| TaskJoinHandle::new());
+    let join_handles = [0; N].map(|_| SpinMutex::new(TaskJoinHandle::default()));
+    pin_array!(join_handles, N);
 
     let mut tasks = unsafe {
         let mut tasks: [MaybeUninit<_>; N] = MaybeUninit::uninit().assume_init();
-        for (i, future) in futures.into_iter().enumerate() {
-            tasks[i].write(Task {
+        for (task, (future, join_handle)) in zip(&mut tasks, zip(futures, join_handles)) {
+            task.write(Task {
                 future,
-                join_handle: &join_handles[i],
+                join_handle,
             });
         }
         tasks.map(|a| a.assume_init())
     };
 
-    let tasks: [&'static mut _; N] = unsafe {
-        let mut task_refs: [MaybeUninit<_>; N] = MaybeUninit::uninit().assume_init();
-        for (i, task) in tasks.iter_mut().enumerate() {
-            // SAFETY: the task is awaited before returning
-            task_refs[i].write(mem::transmute(task));
-        }
-        task_refs.map(|a| a.assume_init())
-    };
-
     TASK_SENDER.with(|sender| {
         let sender = unsafe { sender.get().as_ref().unwrap_unchecked() };
-        for task in tasks.into_iter() {
+        for task in tasks.iter_mut() {
+            // SAFETY: we join the tasks' futures before returning
+            let task = unsafe { mem::transmute(task) };
             sender.send(ChannelMessage::Task(task)).unwrap();
         }
     });
 
     for join_handle in join_handles {
-        join_handle.await;
+        JoinHandleTask { join_handle }.await;
     }
 }
 
 struct Task<'a> {
     future: Pin<&'a mut (dyn Future<Output = ()> + Send)>,
-    join_handle: &'a TaskJoinHandle,
+    join_handle: Pin<&'a SpinMutex<TaskJoinHandle>>,
 }
 
 unsafe impl<'a> Send for Task<'a> {}
@@ -251,7 +261,7 @@ impl<'a> Task<'a> {
 
         match self.future.as_mut().poll(&mut Context::from_waker(&waker)) {
             Poll::Ready(_) => {
-                let mut join_handle = self.join_handle.inner.lock();
+                let mut join_handle = self.join_handle.lock();
 
                 join_handle.done = true;
 
@@ -266,40 +276,26 @@ impl<'a> Task<'a> {
     }
 }
 
+#[derive(Default)]
 struct TaskJoinHandle {
-    // must be an Arc so that it has a stable memory location, even when
-    // a task's stack space/context is switched across await points
-    inner: Arc<SpinMutex<TaskJoinHandleInner>>,
-}
-
-struct TaskJoinHandleInner {
     done: bool,
     waker: Option<Waker>,
 }
 
-impl TaskJoinHandle {
-    fn new() -> Self {
-        let inner = TaskJoinHandleInner {
-            done: false,
-            waker: None,
-        };
-
-        TaskJoinHandle {
-            inner: Arc::new(SpinMutex::new(inner)),
-        }
-    }
+struct JoinHandleTask<'a> {
+    join_handle: Pin<&'a SpinMutex<TaskJoinHandle>>,
 }
 
-impl Future for TaskJoinHandle {
+impl<'a> Future for JoinHandleTask<'a> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut inner = self.inner.lock();
+        let mut join_handle = self.join_handle.lock();
 
-        if inner.done {
+        if join_handle.done {
             Poll::Ready(())
         } else {
-            inner.waker = Some(cx.waker().clone());
+            join_handle.waker = Some(cx.waker().clone());
             Poll::Pending
         }
     }
