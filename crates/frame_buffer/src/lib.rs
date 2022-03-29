@@ -29,6 +29,13 @@ pub struct FrameBufferReader<'a> {
 }
 
 impl FrameBufferReader<'_> {
+    pub fn camera_location(&self) -> Option<Vec3> {
+        self.frame_buffer_manager
+            .event_buffers
+            .iter()
+            .find_map(|double_buffer| double_buffer[self.swap_index as usize].camera_location)
+    }
+
     pub fn locations<F>(&self, f: F)
     where
         F: FnMut(&Vec3),
@@ -47,11 +54,18 @@ pub struct FrameBufferWriter<'a> {
 }
 
 impl FrameBufferWriter<'_> {
+    pub fn set_camera_location(&self, location: Vec3) {
+        FRAME_BUFFER_ENTRY_BUFFER.with(|queue| unsafe {
+            queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].camera_location =
+                Some(location);
+        });
+    }
+
     pub fn push_location(&self, location: Vec3) {
         FRAME_BUFFER_ENTRY_BUFFER.with(|queue| unsafe {
             queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize]
                 .locations
-                .push(location)
+                .push(location);
         });
     }
 }
@@ -62,11 +76,13 @@ thread_local! {
 
 #[derive(Clone, Default)]
 struct Data {
+    camera_location: Option<Vec3>,
     locations: Vec<Vec3>,
 }
 
 impl Data {
     fn clear(&mut self) {
+        self.camera_location = None;
         self.locations.clear();
     }
 }

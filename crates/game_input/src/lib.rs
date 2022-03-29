@@ -4,7 +4,7 @@ use event::{InputEvent, SyncEventDelegate};
 use nalgebra_glm::{vec2, Vec2};
 use winit::{
     dpi::PhysicalSize,
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, MouseButton, VirtualKeyCode, WindowEvent},
 };
 
 pub struct GameInputInterface<'a> {
@@ -68,6 +68,7 @@ pub struct GameInput {
     window_size: Vec2,
     cursor_position: InputState<Vec2>,
     left_mouse_button: InputState<bool>,
+    camera_movement: Vec2,
 }
 
 impl GameInput {
@@ -76,6 +77,7 @@ impl GameInput {
             window_size: vec2(window_size.width as f32, window_size.height as f32),
             cursor_position: Default::default(),
             left_mouse_button: Default::default(),
+            camera_movement: Vec2::zeros(),
         }
     }
 
@@ -84,6 +86,26 @@ impl GameInput {
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_position.x = position.x as f32;
                 self.cursor_position.y = position.y as f32;
+            }
+            WindowEvent::KeyboardInput { input, .. } => {
+                let pressed = input.state == ElementState::Pressed;
+                if let Some(keycode) = input.virtual_keycode {
+                    match keycode {
+                        VirtualKeyCode::W => {
+                            self.camera_movement.x = if pressed { 1.0 } else { 0.0 }
+                        }
+                        VirtualKeyCode::A => {
+                            self.camera_movement.y = if pressed { -1.0 } else { 0.0 }
+                        }
+                        VirtualKeyCode::S => {
+                            self.camera_movement.x = if pressed { -1.0 } else { 0.0 }
+                        }
+                        VirtualKeyCode::D => {
+                            self.camera_movement.y = if pressed { 1.0 } else { 0.0 }
+                        }
+                        _ => {}
+                    }
+                }
             }
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
@@ -108,5 +130,9 @@ impl GameInput {
         if let Some(left_mouse_button) = self.left_mouse_button.updated() {
             event_delegate.push_input_event(InputEvent::MouseButton(*left_mouse_button));
         }
+
+        // axis events are updated every frame
+
+        event_delegate.push_input_event(InputEvent::CameraMoveAxis(self.camera_movement));
     }
 }

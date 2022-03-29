@@ -544,6 +544,7 @@ dependencies = [
  "game_system",
  "metal 0.0.0",
  "system_audio",
+ "system_camera",
  "system_interfaces",
  "system_static_mesh",
  "task_executor",
@@ -1349,6 +1350,15 @@ dependencies = [
  "game_system",
  "log",
  "ringbuf",
+]
+
+[[package]]
+name = "system_camera"
+version = "0.0.0"
+dependencies = [
+ "event",
+ "frame_buffer",
+ "nalgebra-glm",
 ]
 
 [[package]]

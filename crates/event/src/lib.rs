@@ -15,6 +15,7 @@ pub enum GameEvent {
 
 #[derive(Clone, Copy)]
 pub enum InputEvent {
+    CameraMoveAxis(Vec2),
     CursorMoved(Vec2),
     MouseButton(bool),
 }

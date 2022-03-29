@@ -28,6 +28,7 @@ pub struct GameEngine {
     game_controller: GameController,
     input: GameInput,
     last_fixed_update_instant: Instant,
+    last_frame_update_instant: Instant,
     task_executor: TaskExecutor,
 
     #[cfg(target_vendor = "apple")]
@@ -66,6 +67,7 @@ impl GameEngine {
             game_controller: GameController,
             input,
             last_fixed_update_instant: Instant::now(),
+            last_frame_update_instant: Instant::now(),
             task_executor,
             graphics,
         }
@@ -124,11 +126,18 @@ impl GameEngine {
         let frame_buffer_writer = frame_buffer_delegate.writer();
         let event_delegate = self.event_manager.async_delegate();
 
+        let now = Instant::now();
+        let delta_time = now
+            .duration_since(self.last_frame_update_instant)
+            .as_secs_f32();
+        self.last_frame_update_instant = now;
+
         let frame_task = async {
             let frame_update_task = self.frame_update_systems.update(
                 &event_delegate,
                 &frame_buffer_writer,
                 input_interface,
+                delta_time,
             );
 
             let graphics_task = self.graphics.frame(&frame_buffer_reader);
