@@ -64,7 +64,7 @@ impl GameEngine {
             fixed_update: FixedUpdate::new(thread_count),
             frame_buffer_manager,
             frame_update_systems: FrameUpdateSystems::new(),
-            game_controller: GameController,
+            game_controller: GameController::default(),
             input,
             last_fixed_update_instant: Instant::now(),
             last_frame_update_instant: Instant::now(),
@@ -81,10 +81,10 @@ impl GameEngine {
     pub fn frame(&mut self) {
         self.update_fixed();
 
-        self.update_game_state();
-
         self.event_manager.swap();
         self.frame_buffer_manager.swap();
+
+        self.update_game_state();
 
         self.update_and_render_frame();
     }
@@ -114,14 +114,16 @@ impl GameEngine {
 
     fn update_game_state(&mut self) {
         let mut event_delegate = self.event_manager.sync_delegate();
+        let mut frame_buffer_delegate = self.frame_buffer_manager.sync_delegate();
 
         self.input.update(&mut event_delegate);
-        self.game_controller.update(&mut event_delegate);
+        self.game_controller
+            .update(&mut event_delegate, &mut frame_buffer_delegate);
     }
 
     fn update_and_render_frame(&mut self) {
         let input_interface = GameInputInterface::new(&self.input);
-        let frame_buffer_delegate = self.frame_buffer_manager.delegate();
+        let frame_buffer_delegate = self.frame_buffer_manager.async_delegate();
         let frame_buffer_reader = frame_buffer_delegate.reader();
         let frame_buffer_writer = frame_buffer_delegate.writer();
         let event_delegate = self.event_manager.async_delegate();

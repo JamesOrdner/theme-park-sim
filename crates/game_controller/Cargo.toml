@@ -5,4 +5,6 @@ edition = "2021"
 
 [dependencies]
 event = { path = "../event" }
+frame_buffer = { path = "../frame_buffer" }
 game_entity = { path = "../game_entity" }
+game_resources = { path = "../game_resources" }
