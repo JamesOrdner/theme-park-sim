@@ -20,6 +20,14 @@ use std::{
 
 use spin::Mutex as SpinMutex;
 
+macro_rules! pin {
+    ($a:ident) => {
+        // Move the value to ensure that it is owned
+        let $a = $a;
+        let $a = unsafe { Pin::new_unchecked(&$a) };
+    }
+}
+
 enum ChannelMessage {
     Task(&'static mut Task<'static>),
     Join,
@@ -43,8 +51,7 @@ pub struct TaskExecutor {
 
 impl TaskExecutor {
     pub fn new(thread_count: NonZeroUsize, register_thread: &(dyn Fn(usize) + Sync)) -> Self {
-        // SAFETY: cast to 'static is safe because we do not return until
-        // all the threads have run the registration callback
+        // SAFETY: we do not return until all the threads have run the registration callback
         let register_thread =
             unsafe { mem::transmute::<_, &'static (dyn Fn(usize) + Sync)>(register_thread) };
 
@@ -113,7 +120,7 @@ impl TaskExecutor {
 
     pub fn execute_blocking(&mut self, future: Pin<&mut (dyn Future<Output = ()> + Send)>) {
         let join_handle = SpinMutex::default();
-        let join_handle = unsafe { Pin::new_unchecked(&join_handle) };
+        pin!(join_handle);
 
         let mut task = Task {
             future,
@@ -122,7 +129,7 @@ impl TaskExecutor {
 
         // SAFETY: we block until the future completes, and shadow the
         // task variable to ensure that we don't alias mutable borrows.
-        // TODO: where else might join_handle be referenced from?
+        // TODO: will multiple wakers ever reference this task simultaneously?
         let task: &'static mut _ = unsafe { mem::transmute(&mut task) };
 
         self.blocking_task_info.task.store(task, Ordering::Release);
@@ -251,8 +258,6 @@ struct Task<'a> {
     future: Pin<&'a mut (dyn Future<Output = ()> + Send)>,
     join_handle: Pin<&'a SpinMutex<TaskJoinHandle>>,
 }
-
-unsafe impl<'a> Send for Task<'a> {}
 
 impl<'a> Task<'a> {
     fn poll_future(&mut self) -> bool {
