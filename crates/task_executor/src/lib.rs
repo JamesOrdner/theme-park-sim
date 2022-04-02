@@ -25,7 +25,7 @@ macro_rules! pin {
         // Move the value to ensure that it is owned
         let $a = $a;
         let $a = unsafe { Pin::new_unchecked(&$a) };
-    }
+    };
 }
 
 enum ChannelMessage {

@@ -1,5 +1,6 @@
 use std::{cell::Cell, num::NonZeroUsize, ptr, slice::Iter};
 
+use game_entity::EntityId;
 use nalgebra_glm::Vec2;
 
 #[derive(Clone, Copy)]
@@ -9,8 +10,8 @@ pub enum FrameEvent {
 
 #[derive(Clone, Copy)]
 pub enum GameEvent {
-    Spawn(u32),
-    Despawn(u32),
+    Spawn(EntityId),
+    Despawn(EntityId),
 }
 
 #[derive(Clone, Copy)]

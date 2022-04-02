@@ -1,0 +1,4 @@
+[package]
+name = "game_entity"
+version = "0.0.0"
+edition = "2021"

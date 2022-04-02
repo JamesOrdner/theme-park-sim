@@ -1,4 +1,5 @@
 use event::{GameEvent, InputEvent, SyncEventDelegate};
+use game_entity::EntityId;
 
 pub struct GameController;
 
@@ -9,7 +10,7 @@ impl GameController {
             .any(|event| matches!(event, InputEvent::MouseButton(true)));
 
         if spawn_object {
-            event_delegate.push_game_event(GameEvent::Spawn(0));
+            event_delegate.push_game_event(GameEvent::Spawn(EntityId::new(1)));
         }
     }
 }

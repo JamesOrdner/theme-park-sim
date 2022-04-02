@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 event = { path = "../event" }
+game_entity = { path = "../game_entity" }

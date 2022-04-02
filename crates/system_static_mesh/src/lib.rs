@@ -21,7 +21,7 @@ impl FrameData {
     ) {
         for event in event_delegate.game_events() {
             if let GameEvent::Spawn(id) = event {
-                println!("spawning {id}");
+                println!("spawning {}", id.get());
             }
         }
 
