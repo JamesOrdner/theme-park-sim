@@ -2,3 +2,8 @@
 name = "game_resources"
 version = "0.0.0"
 edition = "2021"
+
+[dependencies]
+anyhow = "1.0.56"
+gltf = "1.0.0"
+nalgebra-glm = "0.16.0"
