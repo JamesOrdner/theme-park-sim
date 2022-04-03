@@ -54,7 +54,7 @@ impl GameEngine {
         });
 
         #[cfg(target_vendor = "apple")]
-        let graphics = Metal::new(window);
+        let graphics = Metal::new(window).unwrap();
 
         #[cfg(not(target_vendor = "apple"))]
         let graphics = Vulkan::new(window);
@@ -74,6 +74,10 @@ impl GameEngine {
     }
 
     pub fn handle_input(&mut self, event: WindowEvent) {
+        if let WindowEvent::Resized(size) = event {
+            self.graphics.window_resized(size);
+        }
+
         // writes to previous frame event buffers
         self.input.handle_input(event);
     }

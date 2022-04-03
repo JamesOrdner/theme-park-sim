@@ -20,21 +20,21 @@ pub fn load(path: &Path) -> Result<Mesh> {
 
         mesh.vertex_indices = reader
             .read_indices()
-            .ok_or(Error::msg("primitive contains no vertex indices"))?
+            .ok_or_else(|| Error::msg("primitive contains no vertex indices"))?
             .into_u32()
-            .map(|index| u16::try_from(index))
+            .map(u16::try_from)
             .collect::<Result<_, _>>()?;
 
         mesh.vertex_positions = reader
             .read_positions()
-            .ok_or(Error::msg("primitive contains no vertex positions"))?
-            .map(|position| Vec3::from(position))
+            .ok_or_else(|| Error::msg("primitive contains no vertex positions"))?
+            .map(Vec3::from)
             .collect();
 
         mesh.vertex_normals = reader
             .read_normals()
-            .ok_or(Error::msg("primitive contains no vertex normals"))?
-            .map(|position| Vec3::from(position))
+            .ok_or_else(|| Error::msg("primitive contains no vertex normals"))?
+            .map(Vec3::from)
             .collect();
     }
 

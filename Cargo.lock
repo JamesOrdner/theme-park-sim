@@ -884,9 +884,13 @@ dependencies = [
 name = "metal"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "cocoa",
+ "core-graphics-types",
  "frame_buffer",
+ "log",
  "metal 0.23.1",
+ "objc",
  "winit",
 ]
 

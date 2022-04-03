@@ -10,6 +10,8 @@ impl Vulkan {
         Self {}
     }
 
+    pub fn window_resized(&mut self, _size: PhysicalSize<u32>) {}
+
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
         // artificial vsync
         std::thread::sleep(std::time::Duration::from_millis(16));
