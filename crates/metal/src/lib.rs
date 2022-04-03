@@ -7,14 +7,16 @@ use cocoa::{appkit::NSView, base::id as cocoa_id};
 use core_graphics_types::geometry::CGSize;
 use frame_buffer::FrameBufferReader;
 use metal::{
-    Device, MTLClearColor, MTLLoadAction, MTLPixelFormat, MetalLayer, RenderPassDescriptor,
+    CommandQueue, Device, MTLClearColor, MTLLoadAction, MTLPixelFormat, MetalLayer,
+    RenderPassDescriptor,
 };
 use objc::{rc::autoreleasepool, runtime::YES};
 use winit::{dpi::PhysicalSize, platform::macos::WindowExtMacOS, window::Window};
 
 pub struct Metal {
-    device: Device,
+    _device: Device,
     layer: MetalLayer,
+    queue: CommandQueue,
 }
 
 unsafe impl Send for Metal {}
@@ -38,7 +40,13 @@ impl Metal {
         let size = window.inner_size();
         layer.set_drawable_size(CGSize::new(size.width as f64, size.height as f64));
 
-        Ok(Self { device, layer })
+        let queue = device.new_command_queue();
+
+        Ok(Self {
+            _device: device,
+            layer,
+            queue,
+        })
     }
 
     pub fn window_resized(&mut self, size: PhysicalSize<u32>) {
@@ -46,7 +54,9 @@ impl Metal {
             .set_drawable_size(CGSize::new(size.width as f64, size.height as f64));
     }
 
-    pub async fn frame(&mut self, _frame_buffer: &FrameBufferReader<'_>) {
+    pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
+        let clear_color = frame_buffer.camera_location().unwrap_or_default();
+
         autoreleasepool(|| {
             let drawable = self.layer.next_drawable().unwrap();
 
@@ -55,10 +65,14 @@ impl Metal {
             let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
             color_attachment.set_texture(Some(drawable.texture()));
             color_attachment.set_load_action(MTLLoadAction::Clear);
-            color_attachment.set_clear_color(MTLClearColor::new(0.0, 0.6, 0.9, 1.0));
+            color_attachment.set_clear_color(MTLClearColor::new(
+                clear_color.x as f64,
+                clear_color.y as f64,
+                clear_color.z as f64,
+                1.0,
+            ));
 
-            let queue = self.device.new_command_queue();
-            let cmd_buf = queue.new_command_buffer();
+            let cmd_buf = self.queue.new_command_buffer();
 
             let encoder = cmd_buf.new_render_command_encoder(descriptor);
             encoder.end_encoding();
