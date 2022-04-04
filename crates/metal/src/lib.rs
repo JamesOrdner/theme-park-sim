@@ -53,7 +53,7 @@ impl Metal {
             let vertex_buffer = device.new_buffer_with_data(
                 vertex_data.as_ptr() as *const _,
                 mem::size_of_val(&vertex_data) as u64,
-                MTLResourceOptions::empty(),
+                MTLResourceOptions::StorageModeManaged,
             );
 
             let pipeline = Pipeline::new("default", &device)
