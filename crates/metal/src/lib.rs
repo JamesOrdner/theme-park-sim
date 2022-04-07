@@ -10,6 +10,7 @@ use metal::{
     Buffer, CommandQueue, Device, MTLClearColor, MTLLoadAction, MTLPixelFormat, MTLPrimitiveType,
     MTLResourceOptions, MetalLayer, RenderPassDescriptor,
 };
+use nalgebra_glm::Mat4;
 use objc::{rc::autoreleasepool, runtime::YES};
 use winit::{dpi::PhysicalSize, platform::macos::WindowExtMacOS, window::Window};
 
@@ -49,7 +50,7 @@ impl Metal {
 
             let queue = device.new_command_queue();
 
-            let vertex_data = [0.0_f32, 1.0, 0.0, -1.0, -1.0, 0.0, 1.0, -1.0, 0.0];
+            let vertex_data = [0.0_f32, 0.1, 0.0, -0.1, -0.1, 0.0, 0.1, -0.1, 0.0];
             let vertex_buffer = device.new_buffer_with_data(
                 vertex_data.as_ptr() as *const _,
                 mem::size_of_val(&vertex_data) as u64,
@@ -77,9 +78,22 @@ impl Metal {
     }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
-        autoreleasepool(|| {
-            let clear_color = frame_buffer.camera_location().unwrap_or_default();
+        struct ProjView {
+            _proj: Mat4,
+            _view: Mat4,
+        }
 
+        let proj_view = ProjView {
+            _proj: Mat4::identity(),
+            _view: Mat4::identity(),
+        };
+
+        let model = nalgebra_glm::translate(
+            &Mat4::identity(),
+            &frame_buffer.camera_location().unwrap_or_default(),
+        );
+
+        autoreleasepool(|| {
             let drawable = self.layer.next_drawable().unwrap();
 
             let descriptor = RenderPassDescriptor::new();
@@ -87,17 +101,22 @@ impl Metal {
             let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
             color_attachment.set_texture(Some(drawable.texture()));
             color_attachment.set_load_action(MTLLoadAction::Clear);
-            color_attachment.set_clear_color(MTLClearColor::new(
-                clear_color.x as f64,
-                clear_color.y as f64,
-                clear_color.z as f64,
-                1.0,
-            ));
+            color_attachment.set_clear_color(MTLClearColor::new(0.0, 0.0, 0.0, 1.0));
 
             let cmd_buf = self.queue.new_command_buffer();
 
             let encoder = cmd_buf.new_render_command_encoder(descriptor);
             encoder.set_render_pipeline_state(&self.pipeline.state);
+            encoder.set_vertex_bytes(
+                1,
+                mem::size_of_val(&proj_view) as u64,
+                &proj_view as *const _ as *const _,
+            );
+            encoder.set_vertex_bytes(
+                2,
+                mem::size_of_val(&model) as u64,
+                &model as *const _ as *const _,
+            );
             encoder.set_vertex_buffer(0, Some(&self.vertex_buffer), 0);
             encoder.draw_primitives(MTLPrimitiveType::Triangle, 0, 3);
             encoder.end_encoding();

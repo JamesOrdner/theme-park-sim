@@ -9,9 +9,10 @@ use metal::{
     MTLVertexStepFunction, RenderPipelineDescriptor, RenderPipelineState, VertexDescriptor,
 };
 use naga::{
-    back::msl,
+    back::msl::{self, BindTarget, PerStageMap, PerStageResources},
     front::spv,
     valid::{Capabilities, ValidationFlags, Validator},
+    ResourceBinding,
 };
 
 pub struct Pipeline {
@@ -80,6 +81,24 @@ fn convert_spv(path: &Path, device: &Device) -> Result<Function> {
 
     let options = msl::Options {
         lang_version: (2, 2), // macOS 10.15+
+        per_stage_map: PerStageMap {
+            vs: PerStageResources {
+                resources: [(
+                    ResourceBinding {
+                        group: 0,
+                        binding: 0,
+                    },
+                    BindTarget {
+                        buffer: Some(2),
+                        ..Default::default()
+                    },
+                )]
+                .into(),
+                push_constant_buffer: Some(1),
+                sizes_buffer: None,
+            },
+            ..Default::default()
+        },
         fake_missing_bindings: false,
         ..Default::default()
     };

@@ -10,6 +10,7 @@ core-graphics-types = "0.1.1"
 log = "0.4.16"
 metal = "0.23.1"
 naga = { version = "0.8.5", features = ["msl-out", "spv-in"] }
+nalgebra-glm = "0.16.0"
 objc = "0.2.7"
 winit = "0.26.1"
 

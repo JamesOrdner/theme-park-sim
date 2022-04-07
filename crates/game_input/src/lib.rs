@@ -92,16 +92,16 @@ impl GameInput {
                 if let Some(keycode) = input.virtual_keycode {
                     match keycode {
                         VirtualKeyCode::W => {
-                            self.camera_movement.x = if pressed { 1.0 } else { 0.0 }
+                            self.camera_movement.y = if pressed { 1.0 } else { 0.0 }
                         }
                         VirtualKeyCode::A => {
-                            self.camera_movement.y = if pressed { -1.0 } else { 0.0 }
-                        }
-                        VirtualKeyCode::S => {
                             self.camera_movement.x = if pressed { -1.0 } else { 0.0 }
                         }
+                        VirtualKeyCode::S => {
+                            self.camera_movement.y = if pressed { -1.0 } else { 0.0 }
+                        }
                         VirtualKeyCode::D => {
-                            self.camera_movement.y = if pressed { 1.0 } else { 0.0 }
+                            self.camera_movement.x = if pressed { 1.0 } else { 0.0 }
                         }
                         _ => {}
                     }

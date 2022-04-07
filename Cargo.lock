@@ -928,6 +928,7 @@ dependencies = [
  "log",
  "metal 0.23.1",
  "naga",
+ "nalgebra-glm",
  "objc",
  "winit",
 ]
