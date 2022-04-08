@@ -40,8 +40,9 @@ pub struct FixedData {
     sample_rate: u32,
     audio_producer: Producer<[f32; 2]>,
     phase: f32,
-    camera_location: Vec3,
-    camera_orientation: Vec3,
+    swap_index: bool,
+    camera_location: [Vec3; 2],
+    camera_orientation: [Vec3; 2],
     _stream: SendStream,
 }
 
@@ -85,8 +86,9 @@ impl Default for FixedData {
             sample_rate,
             audio_producer,
             phase: 0.0,
-            camera_location: Vec3::zeros(),
-            camera_orientation: Vec3::zeros(),
+            swap_index: false,
+            camera_location: Default::default(),
+            camera_orientation: Default::default(),
             _stream: SendStream(stream),
         }
     }
@@ -94,26 +96,39 @@ impl Default for FixedData {
 
 impl FixedData {
     pub async fn swap(&mut self, frame_data: &mut FrameData) {
-        self.camera_location = frame_data.camera_location;
-        self.camera_orientation = frame_data.camera_orientation;
+        self.swap_index = !self.swap_index;
+
+        let index = self.swap_index as usize;
+        self.camera_location[index] = frame_data.camera_location;
+        self.camera_orientation[index] = frame_data.camera_orientation;
     }
 
     pub async fn update(&mut self) {
-        let gain = 0.5_f32.powf(self.camera_location.norm());
-        let pan = self
-            .camera_orientation
-            .cross(&self.camera_location.normalize())
-            .y;
+        let index_start = !self.swap_index as usize;
+        let index_end = self.swap_index as usize;
 
-        let gain_r = gain * (-pan + 1.0) * 0.5;
-        let gain_l = gain * (pan + 1.0) * 0.5;
-        let phase_delta = 880.0 * TAU / self.sample_rate as f32;
+        let gain = [index_start, index_end].map(|i| {
+            let dist = 0.5_f32.powf(self.camera_location[i].norm());
+            let pan = self.camera_orientation[i]
+                .cross(&self.camera_location[i].normalize())
+                .y;
 
-        self.audio_producer.push_each(|| {
-            self.phase += phase_delta;
-            let val = self.phase.sin();
-            Some([val * gain_l, val * gain_r])
+            [dist * (pan + 1.0) * 0.5, dist * (-pan + 1.0) * 0.5]
         });
+
+        let phase_delta = 880.0 * TAU / self.sample_rate as f32;
+        let num_frames = self.audio_producer.remaining();
+
+        for i in 0..num_frames {
+            let alpha = i as f32 / num_frames as f32;
+            let val = self.phase.sin();
+            let frame = [0, 1]
+                .map(|i| gain[0][i] * (1.0 - alpha) + gain[1][i] * alpha)
+                .map(|gain| val * gain);
+            self.audio_producer.push(frame).unwrap();
+
+            self.phase += phase_delta;
+        }
 
         self.phase %= TAU;
     }

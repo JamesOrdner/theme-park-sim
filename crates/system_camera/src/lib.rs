@@ -2,7 +2,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use event::{AsyncEventDelegate, FrameEvent, InputEvent};
 use frame_buffer::{CameraInfo, FrameBufferWriter};
-use nalgebra_glm::{vec3, Vec3};
+use nalgebra_glm::{rotate_vec3, vec3, Vec3};
 
 pub struct FrameData {
     origin: Vec3,
@@ -43,7 +43,7 @@ impl FrameData {
         for input_event in event_delegate.input_events() {
             match input_event {
                 InputEvent::CameraMoveAxis(axis) => {
-                    self.origin_vel += nalgebra_glm::rotate_vec3(
+                    self.origin_vel += rotate_vec3(
                         &vec3(axis.x, 0.0, axis.y),
                         self.azimuth_angle_target,
                         &vec3(0.0, 1.0, 0.0),
@@ -72,16 +72,14 @@ impl FrameData {
         self.azimuth_angle += (self.azimuth_angle_target - self.azimuth_angle) * rotate_alpha;
         self.polar_angle += (self.polar_angle_target - self.polar_angle) * rotate_alpha;
 
-        let location = nalgebra_glm::rotate_vec3(
+        let location = rotate_vec3(
             &vec3(0.0, 0.0, -self.boom_len),
             self.polar_angle,
             &vec3(1.0, 0.0, 0.0),
         );
-
-        let location =
-            nalgebra_glm::rotate_vec3(&location, self.azimuth_angle, &vec3(0.0, 1.0, 0.0));
-
+        let location = rotate_vec3(&location, self.azimuth_angle, &vec3(0.0, 1.0, 0.0));
         let location = self.origin + location;
+
         let orientation = (self.origin - location).normalize();
 
         event_delegate.push_frame_event(FrameEvent::CameraLocation(location));
