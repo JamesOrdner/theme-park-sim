@@ -4,7 +4,7 @@ use event::{InputEvent, SyncEventDelegate};
 use nalgebra_glm::{vec2, Vec2};
 use winit::{
     dpi::PhysicalSize,
-    event::{ElementState, MouseButton, VirtualKeyCode, WindowEvent},
+    event::{DeviceEvent, ElementState, MouseButton, VirtualKeyCode, WindowEvent},
 };
 
 pub struct GameInputInterface<'a> {
@@ -69,6 +69,7 @@ pub struct GameInput {
     cursor_position: InputState<Vec2>,
     left_mouse_button: InputState<bool>,
     camera_movement: Vec2,
+    camera_rotation: Vec2,
 }
 
 impl GameInput {
@@ -77,7 +78,15 @@ impl GameInput {
             window_size: vec2(window_size.width as f32, window_size.height as f32),
             cursor_position: Default::default(),
             left_mouse_button: Default::default(),
-            camera_movement: Vec2::zeros(),
+            camera_movement: Default::default(),
+            camera_rotation: Default::default(),
+        }
+    }
+
+    pub fn handle_raw_input(&mut self, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.camera_rotation.x += delta.0 as f32;
+            self.camera_rotation.y += delta.1 as f32;
         }
     }
 
@@ -134,5 +143,8 @@ impl GameInput {
         // axis events are updated every frame
 
         event_delegate.push_input_event(InputEvent::CameraMoveAxis(self.camera_movement));
+        event_delegate.push_input_event(InputEvent::CameraRotateAxis(self.camera_rotation));
+
+        self.camera_rotation = Vec2::zeros();
     }
 }

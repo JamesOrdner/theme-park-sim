@@ -36,12 +36,12 @@ impl FrameBufferReader<'_> {
         self.frame_buffer_manager.spawned_static_meshes.iter()
     }
 
-    pub fn camera_location(&self) -> Option<Vec3> {
+    pub fn camera_info(&self) -> Option<CameraInfo> {
         let swap_index = self.frame_buffer_manager.read_index();
         self.frame_buffer_manager
             .event_buffers
             .iter()
-            .find_map(|buffers| buffers[swap_index].camera_location)
+            .find_map(|buffers| buffers[swap_index].camera_info)
     }
 
     pub fn locations<F>(&self, f: F)
@@ -63,10 +63,10 @@ pub struct FrameBufferWriter<'a> {
 }
 
 impl FrameBufferWriter<'_> {
-    pub fn set_camera_location(&self, location: Vec3) {
+    pub fn set_camera_info(&self, info: CameraInfo) {
         EVENT_BUFFER.with(|queue| unsafe {
-            queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].camera_location =
-                Some(location);
+            queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].camera_info =
+                Some(info);
         });
     }
 
@@ -97,15 +97,22 @@ pub struct SpawnedStaticMesh {
     pub resource: Arc<Resource>,
 }
 
+#[derive(Clone, Copy)]
+pub struct CameraInfo {
+    pub focus: Vec3,
+    pub location: Vec3,
+    pub up: Vec3,
+}
+
 #[derive(Clone, Default)]
 struct Data {
-    camera_location: Option<Vec3>,
+    camera_info: Option<CameraInfo>,
     locations: Vec<Vec3>,
 }
 
 impl Data {
     fn clear(&mut self) {
-        self.camera_location = None;
+        self.camera_info = None;
         self.locations.clear();
     }
 }

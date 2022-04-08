@@ -31,16 +31,13 @@ impl GameClient {
             match event {
                 Event::WindowEvent {
                     event: WindowEvent::CloseRequested,
-                    window_id: _,
-                } => {
-                    // no need to check window_id, we only have a single window
-                    *control_flow = ControlFlow::Exit
+                    ..
+                } => *control_flow = ControlFlow::Exit,
+                Event::DeviceEvent { event, .. } => {
+                    engine.handle_device_event(event);
                 }
-                Event::WindowEvent {
-                    event,
-                    window_id: _,
-                } => {
-                    engine.handle_input(event);
+                Event::WindowEvent { event, .. } => {
+                    engine.handle_window_event(event);
                 }
                 Event::MainEventsCleared => {
                     engine.frame();

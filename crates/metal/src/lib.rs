@@ -10,7 +10,7 @@ use metal::{
     Buffer, CommandQueue, Device, MTLClearColor, MTLLoadAction, MTLPixelFormat, MTLPrimitiveType,
     MTLResourceOptions, MetalLayer, RenderPassDescriptor,
 };
-use nalgebra_glm::Mat4;
+use nalgebra_glm::{look_at_lh, perspective_lh, Mat4};
 use objc::{rc::autoreleasepool, runtime::YES};
 use winit::{dpi::PhysicalSize, platform::macos::WindowExtMacOS, window::Window};
 
@@ -24,6 +24,7 @@ pub struct Metal {
     queue: CommandQueue,
     vertex_buffer: Buffer,
     pipeline: Pipeline,
+    aspect: f32,
 }
 
 unsafe impl Send for Metal {}
@@ -50,7 +51,7 @@ impl Metal {
 
             let queue = device.new_command_queue();
 
-            let vertex_data = [0.0_f32, 0.1, 0.0, -0.1, -0.1, 0.0, 0.1, -0.1, 0.0];
+            let vertex_data = [0.0_f32, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
             let vertex_buffer = device.new_buffer_with_data(
                 vertex_data.as_ptr() as *const _,
                 mem::size_of_val(&vertex_data) as u64,
@@ -60,12 +61,15 @@ impl Metal {
             let pipeline = Pipeline::new("default", &device)
                 .context("pipeline creation failed for: default")?;
 
+            let aspect = size.width as f32 / size.height as f32;
+
             Ok(Self {
                 _device: device,
                 layer,
                 queue,
                 vertex_buffer,
                 pipeline,
+                aspect,
             })
         })
     }
@@ -75,6 +79,8 @@ impl Metal {
             self.layer
                 .set_drawable_size(CGSize::new(size.width as f64, size.height as f64));
         });
+
+        self.aspect = size.width as f32 / size.height as f32;
     }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
@@ -84,14 +90,14 @@ impl Metal {
         }
 
         let proj_view = ProjView {
-            _proj: Mat4::identity(),
-            _view: Mat4::identity(),
+            _proj: perspective_lh(self.aspect, 1.0, 0.01, 10.0),
+            _view: frame_buffer
+                .camera_info()
+                .map(|info| look_at_lh(&info.location, &info.focus, &info.up))
+                .unwrap_or_else(Mat4::identity),
         };
 
-        let model = nalgebra_glm::translate(
-            &Mat4::identity(),
-            &frame_buffer.camera_location().unwrap_or_default(),
-        );
+        let model = Mat4::identity();
 
         autoreleasepool(|| {
             let drawable = self.layer.next_drawable().unwrap();

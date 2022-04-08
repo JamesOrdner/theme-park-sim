@@ -7,7 +7,10 @@ use game_controller::GameController;
 use game_input::{GameInput, GameInputInterface};
 use game_system::FIXED_TIMESTEP;
 use task_executor::{parallel, TaskExecutor};
-use winit::{event::WindowEvent, window::Window};
+use winit::{
+    event::{DeviceEvent, WindowEvent},
+    window::Window,
+};
 
 use crate::{fixed_update::FixedUpdate, frame_update::FrameUpdateSystems};
 
@@ -73,7 +76,12 @@ impl GameEngine {
         }
     }
 
-    pub fn handle_input(&mut self, event: WindowEvent) {
+    pub fn handle_device_event(&mut self, event: DeviceEvent) {
+        // writes to previous frame event buffers
+        self.input.handle_raw_input(event);
+    }
+
+    pub fn handle_window_event(&mut self, event: WindowEvent) {
         if let WindowEvent::Resized(size) = event {
             self.graphics.window_resized(size);
         }
