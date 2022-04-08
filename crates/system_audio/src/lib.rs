@@ -1,16 +1,22 @@
-use std::{cmp::min, f32::consts::PI, slice};
+use std::{
+    cmp::min,
+    f32::consts::{PI, TAU},
+    slice,
+};
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     BufferSize, SampleFormat, SampleRate, Stream, SupportedBufferSize,
 };
-use event::AsyncEventDelegate;
+use event::{AsyncEventDelegate, FrameEvent};
 use game_system::FIXED_TIMESTEP;
+use nalgebra_glm::Vec3;
 use ringbuf::{Consumer, Producer, RingBuffer};
 
 #[derive(Default)]
 pub struct FrameData {
-    play_click: bool,
+    camera_location: Vec3,
+    camera_orientation: Vec3,
 }
 
 impl FrameData {
@@ -19,23 +25,27 @@ impl FrameData {
     }
 
     pub async fn update(&mut self, event_delegate: &AsyncEventDelegate<'_>) {
-        self.play_click |= event_delegate
-            .input_events()
-            .any(|event| matches!(event, event::InputEvent::MouseButton(true)));
+        event_delegate.frame_events(|event| match event {
+            FrameEvent::CameraLocation(location) => self.camera_location = *location,
+            FrameEvent::CameraOrientation(orientation) => self.camera_orientation = *orientation,
+            _ => {}
+        });
     }
 }
 
 /// Wrapper to allow cpal::Stream to be Send
 struct SendStream(Stream);
 
-/// SAFETY: Android's AAudio isn't threadsafe
+// SAFETY: Android's AAudio isn't threadsafe
 #[cfg(not(target_os = "android"))]
 unsafe impl Send for SendStream {}
 
 pub struct FixedData {
     sample_rate: u32,
     audio_producer: Producer<[f32; 2]>,
-    play_click: u32,
+    phase: f32,
+    camera_location: Vec3,
+    camera_orientation: Vec3,
     _stream: SendStream,
 }
 
@@ -78,7 +88,9 @@ impl Default for FixedData {
         Self {
             sample_rate,
             audio_producer,
-            play_click: 0,
+            phase: 0.0,
+            camera_location: Vec3::zeros(),
+            camera_orientation: Vec3::zeros(),
             _stream: SendStream(stream),
         }
     }
@@ -86,24 +98,28 @@ impl Default for FixedData {
 
 impl FixedData {
     pub async fn swap(&mut self, frame_data: &mut FrameData) {
-        if frame_data.play_click {
-            frame_data.play_click = false;
-            self.play_click = self.sample_rate / 10;
-        }
+        self.camera_location = frame_data.camera_location;
+        self.camera_orientation = frame_data.camera_orientation;
     }
 
     pub async fn update(&mut self) {
-        for _ in 0..self.audio_producer.remaining() {
-            if self.play_click > 0 {
-                self.play_click -= 1;
+        let gain = 0.5_f32.powf(self.camera_location.norm());
+        let pan = self
+            .camera_orientation
+            .cross(&self.camera_location.normalize())
+            .y;
 
-                let phase = 2.0 * PI * self.play_click as f32 / self.sample_rate as f32;
-                let val = (880.0 * phase).sin();
-                self.audio_producer.push([val; 2]).unwrap();
-            } else {
-                self.audio_producer.push([0.0; 2]).unwrap();
-            }
-        }
+        let gain_r = gain * (-pan + 1.0) * 0.5;
+        let gain_l = gain * (pan + 1.0) * 0.5;
+        let phase_delta = 880.0 * 2.0 * PI / self.sample_rate as f32;
+
+        self.audio_producer.push_each(|| {
+            self.phase += phase_delta;
+            let val = self.phase.sin();
+            Some([val * gain_l, val * gain_r])
+        });
+
+        self.phase %= TAU;
     }
 }
 

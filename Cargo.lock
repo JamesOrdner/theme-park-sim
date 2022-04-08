@@ -1640,6 +1640,7 @@ dependencies = [
  "event",
  "game_system",
  "log",
+ "nalgebra-glm",
  "ringbuf",
 ]
 

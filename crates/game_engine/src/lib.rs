@@ -77,7 +77,6 @@ impl GameEngine {
     }
 
     pub fn handle_device_event(&mut self, event: DeviceEvent) {
-        // writes to previous frame event buffers
         self.input.handle_raw_input(event);
     }
 
@@ -86,15 +85,14 @@ impl GameEngine {
             self.graphics.window_resized(size);
         }
 
-        // writes to previous frame event buffers
         self.input.handle_input(event);
     }
 
     pub fn frame(&mut self) {
-        self.update_fixed();
-
         self.event_manager.swap();
         self.frame_buffer_manager.swap();
+
+        self.update_fixed();
 
         self.update_game_state();
 

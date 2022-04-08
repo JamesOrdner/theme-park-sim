@@ -1,10 +1,12 @@
 use std::{cell::Cell, num::NonZeroUsize, ptr, slice::Iter};
 
 use game_entity::EntityId;
-use nalgebra_glm::Vec2;
+use nalgebra_glm::{Vec2, Vec3};
 
 #[derive(Clone, Copy)]
 pub enum FrameEvent {
+    CameraLocation(Vec3),
+    CameraOrientation(Vec3),
     Location(EntityId),
 }
 

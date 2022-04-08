@@ -1,6 +1,6 @@
 use std::f32::consts::FRAC_PI_2;
 
-use event::{AsyncEventDelegate, InputEvent};
+use event::{AsyncEventDelegate, FrameEvent, InputEvent};
 use frame_buffer::{CameraInfo, FrameBufferWriter};
 use nalgebra_glm::{vec3, Vec3};
 
@@ -82,6 +82,10 @@ impl FrameData {
             nalgebra_glm::rotate_vec3(&location, self.azimuth_angle, &vec3(0.0, 1.0, 0.0));
 
         let location = self.origin + location;
+        let orientation = (self.origin - location).normalize();
+
+        event_delegate.push_frame_event(FrameEvent::CameraLocation(location));
+        event_delegate.push_frame_event(FrameEvent::CameraOrientation(orientation));
 
         let camera_info = CameraInfo {
             focus: self.origin,

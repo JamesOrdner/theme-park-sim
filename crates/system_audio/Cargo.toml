@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 cpal = "0.13.5"
 log = "0.4.16"
+nalgebra-glm = "0.16.0"
 ringbuf = "0.2.7"
 
 event = { path = "../event" }
