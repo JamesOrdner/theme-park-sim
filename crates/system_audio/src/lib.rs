@@ -1,8 +1,4 @@
-use std::{
-    cmp::min,
-    f32::consts::{PI, TAU},
-    slice,
-};
+use std::{cmp::min, f32::consts::TAU, slice};
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -111,7 +107,7 @@ impl FixedData {
 
         let gain_r = gain * (-pan + 1.0) * 0.5;
         let gain_l = gain * (pan + 1.0) * 0.5;
-        let phase_delta = 880.0 * 2.0 * PI / self.sample_rate as f32;
+        let phase_delta = 880.0 * TAU / self.sample_rate as f32;
 
         self.audio_producer.push_each(|| {
             self.phase += phase_delta;
