@@ -4,7 +4,9 @@ use event::{InputEvent, SyncEventDelegate};
 use nalgebra_glm::{vec2, Vec2};
 use winit::{
     dpi::PhysicalSize,
-    event::{DeviceEvent, ElementState, MouseButton, VirtualKeyCode, WindowEvent},
+    event::{
+        DeviceEvent, ElementState, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
+    },
 };
 
 pub struct GameInputInterface<'a> {
@@ -70,6 +72,7 @@ pub struct GameInput {
     left_mouse_button: InputState<bool>,
     camera_movement: Vec2,
     camera_rotation: Vec2,
+    camera_zoom: f32,
 }
 
 impl GameInput {
@@ -80,6 +83,7 @@ impl GameInput {
             left_mouse_button: Default::default(),
             camera_movement: Default::default(),
             camera_rotation: Default::default(),
+            camera_zoom: Default::default(),
         }
     }
 
@@ -123,6 +127,12 @@ impl GameInput {
             } => {
                 *self.left_mouse_button = state == ElementState::Pressed;
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_zoom += match delta {
+                    MouseScrollDelta::LineDelta(_, _) => panic!(),
+                    MouseScrollDelta::PixelDelta(pixels) => pixels.y as f32,
+                };
+            }
             WindowEvent::Resized(size) => {
                 self.window_size.x = size.width as f32;
                 self.window_size.y = size.height as f32;
@@ -144,7 +154,9 @@ impl GameInput {
 
         event_delegate.push_input_event(InputEvent::CameraMoveAxis(self.camera_movement));
         event_delegate.push_input_event(InputEvent::CameraRotateAxis(self.camera_rotation));
+        event_delegate.push_input_event(InputEvent::CameraZoom(self.camera_zoom));
 
         self.camera_rotation = Vec2::zeros();
+        self.camera_zoom = 0.0;
     }
 }

@@ -90,7 +90,7 @@ impl Metal {
         }
 
         let proj_view = ProjView {
-            _proj: perspective_lh(self.aspect, 1.0, 0.01, 10.0),
+            _proj: perspective_lh(self.aspect, 1.0, 0.01, 50.0),
             _view: frame_buffer
                 .camera_info()
                 .map(|info| look_at_lh(&info.location, &info.focus, &info.up))

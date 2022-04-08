@@ -61,6 +61,10 @@ impl FrameData {
                     self.polar_angle_target =
                         self.polar_angle_target.max(0.05).min(FRAC_PI_2 - 0.05);
                 }
+                InputEvent::CameraZoom(delta) => {
+                    self.boom_len -= delta * 0.01;
+                    self.boom_len = self.boom_len.max(1.0).min(15.0);
+                }
                 _ => {}
             }
         }
