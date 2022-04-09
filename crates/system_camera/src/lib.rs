@@ -12,6 +12,7 @@ pub struct FrameData {
     polar_angle: f32,
     polar_angle_target: f32,
     boom_len: f32,
+    boom_len_target: f32,
 }
 
 impl Default for FrameData {
@@ -24,6 +25,7 @@ impl Default for FrameData {
             polar_angle: 0.0,
             polar_angle_target: 0.0,
             boom_len: 5.0,
+            boom_len_target: 5.0,
         }
     }
 }
@@ -32,6 +34,7 @@ const MOVE_SPEED: f32 = 3.0;
 const ROTATE_SPEED: f32 = 0.01;
 const MOVE_DAMPING_FACTOR: f32 = 0.001;
 const ROTATE_DAMPING_FACTOR: f32 = 0.00001;
+const ZOOM_DAMPING_FACTOR: f32 = 0.000001;
 
 impl FrameData {
     pub async fn update(
@@ -62,8 +65,8 @@ impl FrameData {
                         self.polar_angle_target.max(0.05).min(FRAC_PI_2 - 0.05);
                 }
                 InputEvent::CameraZoom(delta) => {
-                    self.boom_len -= delta * 0.01;
-                    self.boom_len = self.boom_len.max(1.0).min(15.0);
+                    self.boom_len_target -= delta * 0.01;
+                    self.boom_len_target = self.boom_len_target.max(1.0).min(15.0);
                 }
                 _ => {}
             }
@@ -75,6 +78,9 @@ impl FrameData {
         let rotate_alpha = 1.0 - ROTATE_DAMPING_FACTOR.powf(delta_time);
         self.azimuth_angle += (self.azimuth_angle_target - self.azimuth_angle) * rotate_alpha;
         self.polar_angle += (self.polar_angle_target - self.polar_angle) * rotate_alpha;
+
+        let boom_len_alpha = 1.0 - ZOOM_DAMPING_FACTOR.powf(delta_time);
+        self.boom_len += (self.boom_len_target - self.boom_len) * boom_len_alpha;
 
         let location = rotate_vec3(
             &vec3(0.0, 0.0, -self.boom_len),
