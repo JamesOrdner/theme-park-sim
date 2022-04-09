@@ -22,15 +22,16 @@ impl Default for FrameData {
             origin_vel: Default::default(),
             azimuth_angle: 0.0,
             azimuth_angle_target: 0.0,
-            polar_angle: 0.0,
-            polar_angle_target: 0.0,
+            polar_angle: 0.5,
+            polar_angle_target: 0.5,
             boom_len: 5.0,
             boom_len_target: 5.0,
         }
     }
 }
 
-const MOVE_SPEED: f32 = 3.0;
+const MOVE_SPEED: f32 = 2.0;
+const MOVE_SPEED_Y_SCALING: f32 = 0.3;
 const ROTATE_SPEED: f32 = 0.01;
 const MOVE_DAMPING_FACTOR: f32 = 0.001;
 const ROTATE_DAMPING_FACTOR: f32 = 0.00001;
@@ -72,9 +73,6 @@ impl FrameData {
             }
         }
 
-        self.origin += self.origin_vel * MOVE_SPEED * delta_time;
-        self.origin_vel *= MOVE_DAMPING_FACTOR.powf(delta_time);
-
         let rotate_alpha = 1.0 - ROTATE_DAMPING_FACTOR.powf(delta_time);
         self.azimuth_angle += (self.azimuth_angle_target - self.azimuth_angle) * rotate_alpha;
         self.polar_angle += (self.polar_angle_target - self.polar_angle) * rotate_alpha;
@@ -88,6 +86,11 @@ impl FrameData {
             &vec3(1.0, 0.0, 0.0),
         );
         let location = rotate_vec3(&location, self.azimuth_angle, &vec3(0.0, 1.0, 0.0));
+
+        let y_scaling = 1.0 + MOVE_SPEED_Y_SCALING * location.y;
+        self.origin += self.origin_vel * MOVE_SPEED * y_scaling * delta_time;
+        self.origin_vel *= MOVE_DAMPING_FACTOR.powf(delta_time);
+
         let location = self.origin + location;
 
         let orientation = (self.origin - location).normalize();
