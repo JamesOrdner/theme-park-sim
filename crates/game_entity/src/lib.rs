@@ -1,6 +1,6 @@
 use std::{num::NonZeroU32, ops::Deref};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EntityId(NonZeroU32);
 
 impl EntityId {

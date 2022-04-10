@@ -925,6 +925,7 @@ dependencies = [
  "cocoa",
  "core-graphics-types",
  "frame_buffer",
+ "game_entity",
  "log",
  "metal 0.23.1",
  "naga",

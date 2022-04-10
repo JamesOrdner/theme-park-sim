@@ -93,7 +93,7 @@ impl SyncFrameBufferDelegate<'_> {
 
 #[derive(Clone)]
 pub struct SpawnedStaticMesh {
-    pub id: EntityId,
+    pub entity_id: EntityId,
     pub resource: Arc<Resource>,
 }
 

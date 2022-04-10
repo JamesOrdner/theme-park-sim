@@ -23,7 +23,7 @@ impl GameController {
             event_delegate.push_game_event(GameEvent::Spawn(entity_id));
 
             frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
-                id: entity_id,
+                entity_id,
                 resource: self.resource_manager.resource("sphere".to_string()),
             });
         }

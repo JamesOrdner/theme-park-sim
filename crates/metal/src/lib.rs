@@ -1,16 +1,17 @@
 #![cfg(target_vendor = "apple")]
 
-use std::mem;
+use std::{collections::HashMap, mem, slice};
 
 use anyhow::{Context, Error, Result};
 use cocoa::{appkit::NSView, base::id as cocoa_id};
 use core_graphics_types::geometry::CGSize;
-use frame_buffer::FrameBufferReader;
+use frame_buffer::{FrameBufferReader, SpawnedStaticMesh};
+use game_entity::EntityId;
 use metal::{
-    Buffer, CommandQueue, Device, MTLClearColor, MTLLoadAction, MTLPixelFormat, MTLPrimitiveType,
-    MTLResourceOptions, MetalLayer, RenderPassDescriptor,
+    Buffer, CommandQueue, Device, MTLClearColor, MTLIndexType, MTLLoadAction, MTLPixelFormat,
+    MTLPrimitiveType, MTLResourceOptions, MetalLayer, NSRange, NSUInteger, RenderPassDescriptor,
 };
-use nalgebra_glm::{look_at_lh, perspective_lh, Mat4};
+use nalgebra_glm::{look_at_lh, perspective_lh, translate, Mat4, Vec3};
 use objc::{rc::autoreleasepool, runtime::YES};
 use winit::{dpi::PhysicalSize, platform::macos::WindowExtMacOS, window::Window};
 
@@ -18,13 +19,19 @@ use crate::pipeline::Pipeline;
 
 mod pipeline;
 
+struct StaticMesh {
+    buffer: Buffer,
+    locations_offset: NSUInteger,
+    location: Vec3,
+}
+
 pub struct Metal {
-    _device: Device,
+    device: Device,
     layer: MetalLayer,
     queue: CommandQueue,
-    vertex_buffer: Buffer,
     pipeline: Pipeline,
     aspect: f32,
+    static_meshes: HashMap<EntityId, StaticMesh>,
 }
 
 unsafe impl Send for Metal {}
@@ -51,25 +58,18 @@ impl Metal {
 
             let queue = device.new_command_queue();
 
-            let vertex_data = [0.0_f32, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
-            let vertex_buffer = device.new_buffer_with_data(
-                vertex_data.as_ptr() as *const _,
-                mem::size_of_val(&vertex_data) as u64,
-                MTLResourceOptions::StorageModeManaged,
-            );
-
             let pipeline = Pipeline::new("default", &device)
                 .context("pipeline creation failed for: default")?;
 
             let aspect = size.width as f32 / size.height as f32;
 
             Ok(Self {
-                _device: device,
+                device,
                 layer,
                 queue,
-                vertex_buffer,
                 pipeline,
                 aspect,
+                static_meshes: HashMap::new(),
             })
         })
     }
@@ -84,6 +84,10 @@ impl Metal {
     }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
+        for static_mesh in frame_buffer.spawned_static_meshes() {
+            self.spawn_static_mesh(static_mesh);
+        }
+
         struct ProjView {
             _proj: Mat4,
             _view: Mat4,
@@ -96,8 +100,6 @@ impl Metal {
                 .map(|info| look_at_lh(&info.location, &info.focus, &info.up))
                 .unwrap_or_else(Mat4::identity),
         };
-
-        let model = Mat4::identity();
 
         autoreleasepool(|| {
             let drawable = self.layer.next_drawable().unwrap();
@@ -118,17 +120,69 @@ impl Metal {
                 mem::size_of_val(&proj_view) as u64,
                 &proj_view as *const _ as *const _,
             );
-            encoder.set_vertex_bytes(
-                2,
-                mem::size_of_val(&model) as u64,
-                &model as *const _ as *const _,
-            );
-            encoder.set_vertex_buffer(0, Some(&self.vertex_buffer), 0);
-            encoder.draw_primitives(MTLPrimitiveType::Triangle, 0, 3);
+
+            for static_mesh in self.static_meshes.values() {
+                let model = translate(&Mat4::identity(), &static_mesh.location);
+                encoder.set_vertex_bytes(
+                    2,
+                    mem::size_of_val(&model) as u64,
+                    &model as *const _ as *const _,
+                );
+                encoder.set_vertex_buffer(
+                    0,
+                    Some(&static_mesh.buffer),
+                    static_mesh.locations_offset,
+                );
+                encoder.draw_indexed_primitives(
+                    MTLPrimitiveType::Triangle,
+                    static_mesh.locations_offset / 2,
+                    MTLIndexType::UInt16,
+                    &static_mesh.buffer,
+                    0,
+                );
+            }
+
             encoder.end_encoding();
 
             cmd_buf.present_drawable(drawable);
             cmd_buf.commit();
         });
+    }
+
+    fn spawn_static_mesh(&mut self, static_mesh_info: &SpawnedStaticMesh) {
+        let indices = [0_u16, 1, 2];
+        let vertex_data = [0.0_f32, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
+
+        let locations_offset = mem::size_of_val(&indices);
+        let size = (locations_offset + mem::size_of_val(&vertex_data)) as u64;
+
+        let buffer = self
+            .device
+            .new_buffer(size, MTLResourceOptions::StorageModeManaged);
+
+        unsafe {
+            let data = buffer.contents();
+
+            let indices_slice = slice::from_raw_parts_mut(data as *mut u16, indices.len());
+            indices_slice.copy_from_slice(&indices);
+
+            let vertex_ptr = (data as *mut u16).add(indices.len());
+            let vertex_slice = slice::from_raw_parts_mut(vertex_ptr as *mut f32, vertex_data.len());
+            vertex_slice.copy_from_slice(&vertex_data);
+        }
+
+        buffer.did_modify_range(NSRange {
+            location: 0,
+            length: size,
+        });
+
+        let static_mesh = StaticMesh {
+            buffer,
+            locations_offset: locations_offset as u64,
+            location: Vec3::zeros(),
+        };
+
+        self.static_meshes
+            .insert(static_mesh_info.entity_id, static_mesh);
     }
 }
