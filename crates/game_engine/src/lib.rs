@@ -60,7 +60,7 @@ impl GameEngine {
         let graphics = Metal::new(window).unwrap();
 
         #[cfg(not(target_vendor = "apple"))]
-        let graphics = Vulkan::new(window);
+        let graphics = Vulkan::new(window).unwrap();
 
         Self {
             event_manager,
