@@ -55,10 +55,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "atomic_refcell"
-version = "0.1.8"
+name = "async-lock"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73b5e5f48b927f04e952dedc932f31995a65a0bf65ec971c74436e51bf6e970d"
+checksum = "e97a171d191782fba31bb902b14ad94e24a68145032b7eedf871ab0bc0d077b6"
+dependencies = [
+ "event-listener",
+]
 
 [[package]]
 name = "atty"
@@ -503,6 +506,12 @@ dependencies = [
  "game_entity",
  "nalgebra-glm",
 ]
+
+[[package]]
+name = "event-listener"
+version = "2.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77f3309417938f28bf8228fcff79a4a37103981e3e186d2ccd19c74b38f4eb71"
 
 [[package]]
 name = "fixedbitset"
@@ -1721,7 +1730,7 @@ dependencies = [
 name = "task"
 version = "0.0.0"
 dependencies = [
- "atomic_refcell",
+ "async-lock",
 ]
 
 [[package]]
