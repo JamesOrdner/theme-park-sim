@@ -59,7 +59,7 @@ where
     pub fn new_multiple_clone(data: T1) -> Self {
         let inner = Arc::new(SharedDataImpl {
             single_data: RwLock::new(()),
-            multiple_data: [0; T1_LEN].map(|_| RwLock::new(data.clone())),
+            multiple_data: [(); T1_LEN].map(|_| RwLock::new(data.clone())),
         });
 
         Self { inner }

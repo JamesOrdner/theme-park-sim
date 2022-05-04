@@ -1602,6 +1602,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared_data"
+version = "0.0.0"
+dependencies = [
+ "async-lock",
+]
+
+[[package]]
 name = "shlex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1724,13 +1731,6 @@ dependencies = [
  "nalgebra-glm",
  "system_interfaces",
  "update_buffer",
-]
-
-[[package]]
-name = "task"
-version = "0.0.0"
-dependencies = [
- "async-lock",
 ]
 
 [[package]]
