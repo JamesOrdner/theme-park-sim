@@ -1,5 +1,5 @@
-use game_input::GameInputInterface;
+pub mod static_mesh;
 
-pub struct SystemInterfaces<'a> {
-    pub input: GameInputInterface<'a>,
+pub struct SystemData {
+    pub static_mesh: static_mesh::Data,
 }

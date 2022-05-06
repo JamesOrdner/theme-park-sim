@@ -1,4 +1,4 @@
-use std::{cell::Cell, num::NonZeroUsize, ptr, slice::Iter};
+use std::{cell::Cell, num::NonZeroUsize, ptr};
 
 use game_entity::EntityId;
 use nalgebra_glm::{Vec2, Vec3};
@@ -42,21 +42,18 @@ impl SyncEventDelegate<'_> {
         self.event_manager.input_event_buffer.push(event);
     }
 
-    pub fn input_events(&self) -> Iter<InputEvent> {
+    pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
     }
 
     /// Frame events which occurred in the previous frame
-    pub fn frame_events<F>(&self, f: F)
-    where
-        F: FnMut(&FrameEvent),
-    {
+    #[inline(always)]
+    pub fn frame_events(&self) -> impl Iterator<Item = &FrameEvent> {
         let swap_index = self.event_manager.read_index();
         self.event_manager
             .event_buffers
             .iter()
-            .flat_map(|buffers| &buffers[swap_index])
-            .for_each(f);
+            .flat_map(move |buffers| &buffers[swap_index])
     }
 }
 
@@ -76,25 +73,22 @@ impl AsyncEventDelegate<'_> {
         });
     }
 
-    pub fn game_events(&self) -> Iter<GameEvent> {
+    pub fn game_events(&self) -> impl Iterator<Item = &GameEvent> {
         self.event_manager.game_event_buffer.iter()
     }
 
-    pub fn input_events(&self) -> Iter<InputEvent> {
+    pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
     }
 
     /// Frame events which occurred in the previous frame
-    pub fn frame_events<F>(&self, f: F)
-    where
-        F: FnMut(&FrameEvent),
-    {
+    #[inline(always)]
+    pub fn frame_events(&self) -> impl Iterator<Item = &FrameEvent> {
         let swap_index = self.event_manager.read_index();
         self.event_manager
             .event_buffers
             .iter()
-            .flat_map(|buffers| &buffers[swap_index])
-            .for_each(f);
+            .flat_map(move |buffers| &buffers[swap_index])
     }
 }
 

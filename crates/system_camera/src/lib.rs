@@ -3,8 +3,10 @@ use std::f32::consts::FRAC_PI_2;
 use event::{AsyncEventDelegate, FrameEvent, InputEvent};
 use frame_buffer::{CameraInfo, FrameBufferWriter};
 use nalgebra_glm::{rotate_vec3, vec3, Vec3};
+use system_interfaces::static_mesh::Interface as StaticMeshInterface;
 
 pub struct FrameData {
+    static_mesh_interface: StaticMeshInterface,
     origin: Vec3,
     origin_vel: Vec3,
     azimuth_angle: f32,
@@ -15,9 +17,17 @@ pub struct FrameData {
     boom_len_target: f32,
 }
 
-impl Default for FrameData {
-    fn default() -> Self {
+const MOVE_SPEED: f32 = 2.0;
+const MOVE_SPEED_Y_SCALING: f32 = 0.3;
+const ROTATE_SPEED: f32 = 0.01;
+const MOVE_DAMPING_FACTOR: f32 = 0.001;
+const ROTATE_DAMPING_FACTOR: f32 = 0.00001;
+const ZOOM_DAMPING_FACTOR: f32 = 0.000001;
+
+impl FrameData {
+    pub fn new(static_mesh_interface: StaticMeshInterface) -> Self {
         Self {
+            static_mesh_interface,
             origin: Default::default(),
             origin_vel: Default::default(),
             azimuth_angle: 0.0,
@@ -28,16 +38,7 @@ impl Default for FrameData {
             boom_len_target: 5.0,
         }
     }
-}
 
-const MOVE_SPEED: f32 = 2.0;
-const MOVE_SPEED_Y_SCALING: f32 = 0.3;
-const ROTATE_SPEED: f32 = 0.01;
-const MOVE_DAMPING_FACTOR: f32 = 0.001;
-const ROTATE_DAMPING_FACTOR: f32 = 0.00001;
-const ZOOM_DAMPING_FACTOR: f32 = 0.000001;
-
-impl FrameData {
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
@@ -94,6 +95,11 @@ impl FrameData {
         let location = self.origin + location;
 
         let orientation = (self.origin - location).normalize();
+
+        // faux ensure camera isn't colliding
+        self.static_mesh_interface
+            .raycast(&self.origin, &-orientation)
+            .await;
 
         event_delegate.push_frame_event(FrameEvent::CameraLocation(location));
         event_delegate.push_frame_event(FrameEvent::CameraOrientation(orientation));

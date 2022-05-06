@@ -21,11 +21,15 @@ impl FrameData {
     }
 
     pub async fn update(&mut self, event_delegate: &AsyncEventDelegate<'_>) {
-        event_delegate.frame_events(|event| match event {
-            FrameEvent::CameraLocation(location) => self.camera_location = *location,
-            FrameEvent::CameraOrientation(orientation) => self.camera_orientation = *orientation,
-            _ => {}
-        });
+        for event in event_delegate.frame_events() {
+            match event {
+                FrameEvent::CameraLocation(location) => self.camera_location = *location,
+                FrameEvent::CameraOrientation(orientation) => {
+                    self.camera_orientation = *orientation
+                }
+                _ => {}
+            }
+        }
     }
 }
 

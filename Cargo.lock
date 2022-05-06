@@ -631,6 +631,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "game_data"
+version = "0.0.0"
+dependencies = [
+ "async-lock",
+]
+
+[[package]]
 name = "game_engine"
 version = "0.0.0"
 dependencies = [
@@ -1602,13 +1609,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shared_data"
-version = "0.0.0"
-dependencies = [
- "async-lock",
-]
-
-[[package]]
 name = "shlex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1713,13 +1713,17 @@ dependencies = [
  "event",
  "frame_buffer",
  "nalgebra-glm",
+ "system_interfaces",
 ]
 
 [[package]]
 name = "system_interfaces"
 version = "0.0.0"
 dependencies = [
+ "game_data",
+ "game_entity",
  "game_input",
+ "nalgebra-glm",
 ]
 
 [[package]]

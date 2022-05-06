@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-#[derive(Clone)]
 pub struct SharedData<T0 = (), T1 = (), const T1_LEN: usize = 0> {
     inner: Arc<SharedDataImpl<T0, T1, T1_LEN>>,
 }
@@ -10,6 +9,14 @@ pub struct SharedData<T0 = (), T1 = (), const T1_LEN: usize = 0> {
 struct SharedDataImpl<T0 = (), T1 = (), const T1_LEN: usize = 0> {
     single_data: RwLock<T0>,
     multiple_data: [RwLock<T1>; T1_LEN],
+}
+
+impl<T0, T1, const T1_LEN: usize> Clone for SharedData<T0, T1, T1_LEN> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 impl<T0> SharedData<T0, (), 0> {

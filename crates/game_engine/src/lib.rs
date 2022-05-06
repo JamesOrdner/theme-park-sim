@@ -4,15 +4,16 @@ use event::EventManager;
 use frame_buffer::FrameBufferManager;
 use futures::pin_mut;
 use game_controller::GameController;
-use game_input::{GameInput, GameInputInterface};
+use game_input::GameInput;
 use game_system::FIXED_TIMESTEP;
+use system_interfaces::SystemData;
 use task_executor::{parallel, TaskExecutor};
 use winit::{
     event::{DeviceEvent, WindowEvent},
     window::Window,
 };
 
-use crate::{fixed_update::FixedUpdate, frame_update::FrameUpdateSystems};
+use crate::{fixed_update::FixedUpdate, frame_update::FrameUpdate};
 
 mod fixed_update;
 mod frame_update;
@@ -25,9 +26,9 @@ use vulkan::Vulkan;
 
 pub struct GameEngine {
     event_manager: EventManager,
+    frame_update: FrameUpdate,
     fixed_update: FixedUpdate,
     frame_buffer_manager: FrameBufferManager,
-    frame_update_systems: FrameUpdateSystems,
     game_controller: GameController,
     input: GameInput,
     last_fixed_update_instant: Instant,
@@ -62,11 +63,13 @@ impl GameEngine {
         #[cfg(not(target_vendor = "apple"))]
         let graphics = Vulkan::new(window).unwrap();
 
+        let system_data = system_data();
+
         Self {
             event_manager,
+            frame_update: FrameUpdate::new(&system_data),
             fixed_update: FixedUpdate::new(thread_count),
             frame_buffer_manager,
-            frame_update_systems: FrameUpdateSystems::new(),
             game_controller: GameController::default(),
             input,
             last_fixed_update_instant: Instant::now(),
@@ -75,7 +78,15 @@ impl GameEngine {
             graphics,
         }
     }
+}
 
+fn system_data() -> SystemData {
+    SystemData {
+        static_mesh: system_static_mesh::shared_data(),
+    }
+}
+
+impl GameEngine {
     pub fn handle_device_event(&mut self, event: DeviceEvent) {
         self.input.handle_raw_input(event);
     }
@@ -113,7 +124,7 @@ impl GameEngine {
 
             // if last iteration, swap with frame updates
             if now.duration_since(self.last_fixed_update_instant) < FIXED_TIMESTEP {
-                let swap_task = self.fixed_update.swap(&mut self.frame_update_systems);
+                let swap_task = self.fixed_update.swap(&mut self.frame_update);
                 pin_mut!(swap_task);
                 self.task_executor.execute_blocking(swap_task);
             }
@@ -132,7 +143,6 @@ impl GameEngine {
     }
 
     fn update_and_render_frame(&mut self) {
-        let input_interface = GameInputInterface::new(&self.input);
         let frame_buffer_delegate = self.frame_buffer_manager.async_delegate();
         let frame_buffer_reader = frame_buffer_delegate.reader();
         let frame_buffer_writer = frame_buffer_delegate.writer();
@@ -145,12 +155,9 @@ impl GameEngine {
         self.last_frame_update_instant = now;
 
         let frame_task = async {
-            let frame_update_task = self.frame_update_systems.update(
-                &event_delegate,
-                &frame_buffer_writer,
-                input_interface,
-                delta_time,
-            );
+            let frame_update_task =
+                self.frame_update
+                    .update(&event_delegate, &frame_buffer_writer, delta_time);
 
             let graphics_task = self.graphics.frame(&frame_buffer_reader);
 

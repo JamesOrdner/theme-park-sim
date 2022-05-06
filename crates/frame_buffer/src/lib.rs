@@ -1,4 +1,4 @@
-use std::{cell::Cell, marker::PhantomData, num::NonZeroUsize, ptr, slice::Iter, sync::Arc};
+use std::{cell::Cell, marker::PhantomData, num::NonZeroUsize, ptr, sync::Arc};
 
 use game_entity::EntityId;
 use game_resources::Resource;
@@ -32,7 +32,7 @@ pub struct FrameBufferReader<'a> {
 }
 
 impl FrameBufferReader<'_> {
-    pub fn spawned_static_meshes(&self) -> Iter<SpawnedStaticMesh> {
+    pub fn spawned_static_meshes(&self) -> impl Iterator<Item = &SpawnedStaticMesh> {
         self.frame_buffer_manager.spawned_static_meshes.iter()
     }
 

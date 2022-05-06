@@ -4,4 +4,8 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+nalgebra-glm = "0.16.0"
+
+game_data = { path = "../game_data" }
+game_entity = { path = "../game_entity" }
 game_input = { path = "../game_input" }

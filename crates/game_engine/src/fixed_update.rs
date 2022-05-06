@@ -4,7 +4,7 @@ use futures::pin_mut;
 use task_executor::{parallel, FixedUpdateTaskHandle, TaskExecutor};
 use update_buffer::UpdateBuffer;
 
-use crate::frame_update::FrameUpdateSystems;
+use crate::frame_update::FrameUpdate;
 
 pub struct FixedUpdate {
     systems: Option<Box<FixedUpdateSystems>>,
@@ -25,7 +25,7 @@ impl FixedUpdate {
         }
     }
 
-    pub async fn swap(&mut self, frame_systems: &mut FrameUpdateSystems) {
+    pub async fn swap(&mut self, frame_systems: &mut FrameUpdate) {
         let fixed_systems = self.systems.as_mut().unwrap();
 
         let audio_task = fixed_systems.audio.swap(&mut frame_systems.audio);

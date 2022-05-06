@@ -3,21 +3,30 @@ use std::mem;
 use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::FrameBufferWriter;
 use nalgebra_glm::Vec3;
-use system_interfaces::SystemInterfaces;
+use system_interfaces::static_mesh::Data as SharedData;
 use update_buffer::UpdateBufferRef;
 
-#[derive(Default)]
+pub fn shared_data() -> SharedData {
+    Default::default()
+}
+
 pub struct FrameData {
-    location: Vec3,
+    shared_data: SharedData,
     modified_entities: Vec<Vec3>,
 }
 
 impl FrameData {
+    pub fn new(shared_data: SharedData) -> Self {
+        Self {
+            shared_data,
+            modified_entities: Vec::new(),
+        }
+    }
+
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &FrameBufferWriter<'_>,
-        _system_interfaces: SystemInterfaces<'_>,
     ) {
         for event in event_delegate.game_events() {
             if let GameEvent::Spawn(id) = event {
@@ -26,8 +35,14 @@ impl FrameData {
         }
 
         if let Some(entity) = self.modified_entities.first() {
-            self.location = *entity;
             frame_buffer.push_location(*entity);
+
+            let mut data = self.shared_data.write_single().await;
+            if let Some(location) = data.locations.first_mut() {
+                *location = *entity;
+            } else {
+                data.locations.push(*entity);
+            }
         }
 
         self.modified_entities.clear();
