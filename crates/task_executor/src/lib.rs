@@ -5,6 +5,7 @@ use std::{
     cell::Cell,
     future::Future,
     iter::zip,
+    marker::PhantomPinned,
     mem::{self, MaybeUninit},
     num::NonZeroUsize,
     pin::Pin,
@@ -20,16 +21,38 @@ use std::{
 
 use spin::Mutex as SpinMutex;
 
-macro_rules! pin {
-    ($a:ident) => {
+/// Stack-pins a value and extends the reference lifetime to 'static.
+macro_rules! pin_unsafe {
+    ($a:ident, $t:ty) => {
         // Move the value to ensure that it is owned
         let $a = $a;
-        let $a = unsafe { Pin::new_unchecked(&$a) };
+        let $a: Pin<&$t> = unsafe { Pin::new_unchecked(&$a) };
+        let $a: Pin<&'static $t> = unsafe { mem::transmute($a) };
+    };
+}
+
+/// Stack-pins an array and extends the reference lifetimes to 'static.
+macro_rules! pin_array_unsafe {
+    ($arr: ident, $len: ident, $t:ty) => {
+        // Move the array to ensure that it is owned
+        let $arr = $arr;
+
+        let $arr = {
+            unsafe {
+                let mut x: [MaybeUninit<_>; $len] = MaybeUninit::uninit().assume_init();
+                for (x, a) in zip(&mut x, &$arr) {
+                    let a: Pin<&$t> = Pin::new_unchecked(a);
+                    let a: Pin<&'static $t> = mem::transmute(a);
+                    x.write(a);
+                }
+                x.map(|a| a.assume_init())
+            }
+        };
     };
 }
 
 enum ChannelMessage {
-    Task(&'static mut Task<'static>),
+    Task(Pin<&'static SpinMutex<Task>>),
     Join,
 }
 
@@ -37,8 +60,9 @@ thread_local! {
     static TASK_SENDER: Cell<*const Sender<ChannelMessage>> = Cell::new(ptr::null())
 }
 
+#[derive(Default)]
 struct BlockingTaskInfo {
-    task: AtomicPtr<Task<'static>>,
+    task: AtomicPtr<SpinMutex<Task>>,
     cvar: Condvar,
     completed: Mutex<bool>,
 }
@@ -60,11 +84,7 @@ impl TaskExecutor {
         let (task_sender, task_receiver) = mpsc::channel();
         let task_receiver = Arc::new(Mutex::new(task_receiver));
 
-        let blocking_task_info = Arc::new(BlockingTaskInfo {
-            task: AtomicPtr::new(ptr::null_mut()),
-            cvar: Condvar::new(),
-            completed: Mutex::new(false),
-        });
+        let blocking_task_info = Arc::new(BlockingTaskInfo::default());
 
         let mut thread_join_handles = Vec::with_capacity(thread_count.get());
 
@@ -87,9 +107,17 @@ impl TaskExecutor {
                     let task = task_receiver.lock().unwrap().recv().unwrap();
                     match task {
                         ChannelMessage::Task(task) => {
-                            if task.poll_future()
-                                && task as *mut _ == blocking_task_info.task.load(Ordering::Acquire)
-                            {
+                            let ptr = &*task as *const _;
+
+                            let waker = RawWaker::new(
+                                (&*task) as *const SpinMutex<Task> as *const (),
+                                &VTABLE,
+                            );
+                            let waker = unsafe { Waker::from_raw(waker) };
+                            let mut context = Context::from_waker(&waker);
+
+                            let ready = task.lock().poll_future(&mut context);
+                            if ready && ptr == blocking_task_info.task.load(Ordering::Acquire) {
                                 *blocking_task_info.completed.lock().unwrap() = true;
                                 blocking_task_info.cvar.notify_one();
                             }
@@ -120,19 +148,23 @@ impl TaskExecutor {
 
     pub fn execute_blocking(&mut self, future: Pin<&mut (dyn Future<Output = ()> + Send)>) {
         let join_handle = SpinMutex::default();
-        pin!(join_handle);
 
-        let mut task = Task {
-            future,
-            join_handle,
-        };
+        // SAFETY: we block until the future completes.
+        pin_unsafe!(join_handle, SpinMutex<TaskJoinHandle>);
 
-        // SAFETY: we block until the future completes, and shadow the
-        // task variable to ensure that we don't alias mutable borrows.
-        // TODO: will multiple wakers ever reference this task simultaneously?
-        let task: &'static mut _ = unsafe { mem::transmute(&mut task) };
+        // SAFETY: we block until the future completes.
+        let future: Pin<&'static mut (dyn Future<Output = ()> + Send)> =
+            unsafe { mem::transmute(future) };
 
-        self.blocking_task_info.task.store(task, Ordering::Release);
+        let task = SpinMutex::new(Task::new(future, join_handle));
+
+        // SAFETY: we block until the future completes.
+        pin_unsafe!(task, SpinMutex<Task>);
+
+        self.blocking_task_info.task.store(
+            &*task as *const SpinMutex<Task> as *mut _,
+            Ordering::Release,
+        );
 
         self.task_sender.send(ChannelMessage::Task(task)).unwrap();
 
@@ -162,7 +194,7 @@ impl TaskExecutor {
 
 impl Drop for TaskExecutor {
     fn drop(&mut self) {
-        for _ in 0..self.thread_join_handles.len() {
+        for _ in &self.thread_join_handles {
             self.task_sender.send(ChannelMessage::Join).unwrap();
         }
 
@@ -172,29 +204,23 @@ impl Drop for TaskExecutor {
     }
 }
 
-fn task_clone(s: *const Task) -> RawWaker {
-    RawWaker::new(s as *const (), &VTABLE)
+const VTABLE: RawWakerVTable = RawWakerVTable::new(task_clone, task_wake, |_| {}, |_| {});
+
+fn task_clone(task: *const ()) -> RawWaker {
+    RawWaker::new(task, &VTABLE)
 }
 
-fn task_wake(task: *const Task) {
-    // SAFETY: this is still an exclusive reference. It has only
-    // been cast to *const to please the waker API
-    let task = unsafe { (task as *mut Task).as_mut().unwrap() };
+fn task_wake(task: *const ()) {
+    let task = unsafe {
+        let task = (task as *const SpinMutex<Task>).as_ref().unwrap_unchecked();
+        Pin::new_unchecked(task)
+    };
 
     TASK_SENDER.with(|sender| {
         let sender = unsafe { sender.get().as_ref().unwrap_unchecked() };
         sender.send(ChannelMessage::Task(task)).unwrap();
     });
 }
-
-const VTABLE: RawWakerVTable = {
-    RawWakerVTable::new(
-        |s| task_clone(s as *const Task),
-        |s| task_wake(s as *const Task),
-        |_| {},
-        |_| {},
-    )
-};
 
 pub struct FixedUpdateTaskHandle<T> {
     future: Pin<Box<dyn Future<Output = Box<T>> + Send + 'static>>,
@@ -204,47 +230,32 @@ impl<T> Future for FixedUpdateTaskHandle<T> {
     type Output = Box<T>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.future.as_mut().poll(cx) {
-            Poll::Ready(result) => Poll::Ready(result),
-            Poll::Pending => Poll::Pending,
-        }
+        self.future.as_mut().poll(cx)
     }
 }
 
-macro_rules! pin_array {
-    ($arr: ident, $len: expr) => {
-        let $arr = {
-            unsafe {
-                let mut x: [MaybeUninit<_>; $len] = MaybeUninit::uninit().assume_init();
-                for (i, a) in $arr.iter().enumerate() {
-                    x[i].write(Pin::new_unchecked(a));
-                }
-                x.map(|a| a.assume_init())
-            }
-        };
-    };
-}
-
 pub async fn parallel<const N: usize>(futures: [Pin<&mut (dyn Future<Output = ()> + Send)>; N]) {
-    let join_handles = [0; N].map(|_| SpinMutex::new(TaskJoinHandle::default()));
-    pin_array!(join_handles, N);
+    let join_handles = [0; N].map(|_| SpinMutex::default());
 
-    let mut tasks = unsafe {
+    // SAFETY: we block until the future completes.
+    pin_array_unsafe!(join_handles, N, SpinMutex<TaskJoinHandle>);
+
+    let tasks = unsafe {
         let mut tasks: [MaybeUninit<_>; N] = MaybeUninit::uninit().assume_init();
         for (task, (future, join_handle)) in zip(&mut tasks, zip(futures, join_handles)) {
-            task.write(Task {
-                future,
-                join_handle,
-            });
+            // SAFETY: we block until the future completes.
+            let future: Pin<&'static mut (dyn Future<Output = ()> + Send)> = mem::transmute(future);
+            task.write(SpinMutex::new(Task::new(future, join_handle)));
         }
         tasks.map(|a| a.assume_init())
     };
 
+    // SAFETY: we block until the future completes.
+    pin_array_unsafe!(tasks, N, SpinMutex<Task>);
+
     TASK_SENDER.with(|sender| {
         let sender = unsafe { sender.get().as_ref().unwrap_unchecked() };
-        for task in tasks.iter_mut() {
-            // SAFETY: we join the tasks' futures before returning
-            let task = unsafe { mem::transmute(task) };
+        for task in tasks {
             sender.send(ChannelMessage::Task(task)).unwrap();
         }
     });
@@ -252,31 +263,42 @@ pub async fn parallel<const N: usize>(futures: [Pin<&mut (dyn Future<Output = ()
     for join_handle in join_handles {
         JoinHandleTask { join_handle }.await;
     }
+
+    // TODO: ensure tasks persist across this await point
 }
 
-struct Task<'a> {
-    future: Pin<&'a mut (dyn Future<Output = ()> + Send)>,
-    join_handle: Pin<&'a SpinMutex<TaskJoinHandle>>,
+struct Task {
+    future: Pin<&'static mut (dyn Future<Output = ()> + Send)>,
+    join_handle: Pin<&'static SpinMutex<TaskJoinHandle>>,
+    // the waker system relies on stable Task addresses
+    _pinned: PhantomPinned,
 }
 
-impl<'a> Task<'a> {
-    fn poll_future(&mut self) -> bool {
-        let waker = RawWaker::new(self as *mut Task as *const (), &VTABLE);
-        let waker = unsafe { Waker::from_raw(waker) };
+impl Task {
+    fn new(
+        future: Pin<&'static mut (dyn Future<Output = ()> + Send)>,
+        join_handle: Pin<&'static SpinMutex<TaskJoinHandle>>,
+    ) -> Self {
+        Self {
+            future,
+            join_handle,
+            _pinned: PhantomPinned,
+        }
+    }
 
-        match self.future.as_mut().poll(&mut Context::from_waker(&waker)) {
-            Poll::Ready(_) => {
-                let mut join_handle = self.join_handle.lock();
+    fn poll_future(&mut self, context: &mut Context) -> bool {
+        if self.future.as_mut().poll(context).is_ready() {
+            let mut join_handle = self.join_handle.lock();
 
-                join_handle.done = true;
+            join_handle.done = true;
 
-                if let Some(waker) = join_handle.waker.take() {
-                    waker.wake();
-                }
-
-                true
+            if let Some(waker) = join_handle.waker.take() {
+                waker.wake();
             }
-            Poll::Pending => false,
+
+            true
+        } else {
+            false
         }
     }
 }
