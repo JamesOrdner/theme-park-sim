@@ -5,7 +5,7 @@ use erupt::{vk, DeviceLoader};
 use gpu_alloc::{Request, UsageFlags};
 
 use crate::{
-    allocator::{Buffer, GpuAllocator},
+    allocator::{GpuAllocator, GpuBuffer},
     descriptor_set_layouts::{descriptor_pool_sizes, InstanceData},
     VulkanInfo,
 };
@@ -28,7 +28,7 @@ pub struct Frame {
     acquire_semaphore: vk::Semaphore,
     present_semaphore: vk::Semaphore,
     instance_data_alignment: vk::DeviceSize,
-    instance_buffer: Buffer,
+    instance_buffer: GpuBuffer,
     instance_descriptor_set: vk::DescriptorSet,
 }
 
@@ -84,10 +84,7 @@ impl Frame {
             vulkan
                 .device
                 .allocate_command_buffers(&command_buffer_allocate_info)
-                .result()?
-                .into_iter()
-                .next()
-                .unwrap()
+                .result()?[0]
         };
 
         // acquire + present semaphores
@@ -120,10 +117,7 @@ impl Frame {
             vulkan
                 .device
                 .allocate_descriptor_sets(&descriptor_set_allocate_info)
-                .result()?
-                .into_iter()
-                .last()
-                .unwrap()
+                .result()?[0]
         };
 
         // allocate uniform buffer memory
@@ -153,7 +147,7 @@ impl Frame {
                 usage: UsageFlags::UPLOAD,
                 memory_types: !0,
             },
-        )?;
+        );
 
         // associate uniform buffer memory with descirptor set
 

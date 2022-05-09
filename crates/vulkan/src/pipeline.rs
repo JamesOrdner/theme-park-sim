@@ -58,7 +58,7 @@ impl Pipeline {
 
         let rasterization_create_info = vk::PipelineRasterizationStateCreateInfoBuilder::new()
             .polygon_mode(vk::PolygonMode::FILL)
-            .cull_mode(vk::CullModeFlags::BACK)
+            .cull_mode(vk::CullModeFlags::NONE)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .line_width(1.0);
 
@@ -101,10 +101,7 @@ impl Pipeline {
             vulkan
                 .device
                 .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_info, None)
-                .map_err(|_| Error::msg("create_graphics_pipelines"))?
-                .into_iter()
-                .next()
-                .unwrap()
+                .map_err(|_| Error::msg("create_graphics_pipelines"))?[0]
         };
 
         Ok(Pipeline {
@@ -126,6 +123,10 @@ impl Drop for Pipeline {
 }
 
 impl Pipeline {
+    pub fn layout(&self) -> vk::PipelineLayout {
+        self.pipeline_layout
+    }
+
     pub fn bind(&self, command_buffer: vk::CommandBuffer) {
         unsafe {
             self.device.cmd_bind_pipeline(
