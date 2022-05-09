@@ -28,10 +28,14 @@ impl FrameData {
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &FrameBufferWriter<'_>,
     ) {
-        for event in event_delegate.game_events() {
-            if let GameEvent::Spawn(id) = event {
-                println!("spawning {}", id.get());
-            }
+        for spawn_id in event_delegate
+            .game_events()
+            .filter_map(|event| match event {
+                GameEvent::Spawn(id) => Some(id),
+                _ => None,
+            })
+        {
+            println!("spawning {}", spawn_id.get());
         }
 
         if let Some(entity) = self.modified_entities.first() {

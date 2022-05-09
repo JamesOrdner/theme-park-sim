@@ -7,7 +7,7 @@ use game_controller::GameController;
 use game_input::GameInput;
 use game_system::FIXED_TIMESTEP;
 use system_interfaces::SystemData;
-use task_executor::{parallel, TaskExecutor};
+use task_executor::{task::parallel, TaskExecutor};
 use winit::{
     event::{DeviceEvent, WindowEvent},
     window::Window,
@@ -25,6 +25,7 @@ use metal::Metal;
 use vulkan::Vulkan;
 
 pub struct GameEngine {
+    task_executor: TaskExecutor,
     event_manager: EventManager,
     frame_update: FrameUpdate,
     fixed_update: FixedUpdate,
@@ -33,7 +34,6 @@ pub struct GameEngine {
     input: GameInput,
     last_fixed_update_instant: Instant,
     last_frame_update_instant: Instant,
-    task_executor: TaskExecutor,
 
     #[cfg(target_vendor = "apple")]
     graphics: Metal,
@@ -66,6 +66,7 @@ impl GameEngine {
         let system_data = system_data();
 
         Self {
+            task_executor,
             event_manager,
             frame_update: FrameUpdate::new(&system_data),
             fixed_update: FixedUpdate::new(thread_count),
@@ -74,7 +75,6 @@ impl GameEngine {
             input,
             last_fixed_update_instant: Instant::now(),
             last_frame_update_instant: Instant::now(),
-            task_executor,
             graphics,
         }
     }
@@ -82,6 +82,7 @@ impl GameEngine {
 
 fn system_data() -> SystemData {
     SystemData {
+        navigation: system_navigation::shared_data(),
         static_mesh: system_static_mesh::shared_data(),
     }
 }

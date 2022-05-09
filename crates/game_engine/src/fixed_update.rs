@@ -1,14 +1,14 @@
 use std::num::NonZeroUsize;
 
 use futures::pin_mut;
-use task_executor::{parallel, FixedUpdateTaskHandle, TaskExecutor};
+use task_executor::{task::parallel, FixedTaskHandle, TaskExecutor};
 use update_buffer::UpdateBuffer;
 
 use crate::frame_update::FrameUpdate;
 
 pub struct FixedUpdate {
     systems: Option<Box<FixedUpdateSystems>>,
-    task_handle: Option<FixedUpdateTaskHandle<FixedUpdateSystems>>,
+    task_handle: Option<FixedTaskHandle<FixedUpdateSystems>>,
 }
 
 impl FixedUpdate {
@@ -60,7 +60,7 @@ impl FixedUpdate {
             fixed_systems
         };
 
-        self.task_handle = Some(task_executor.execute_async(task));
+        self.task_handle = Some(task_executor.execute_fixed(task));
     }
 }
 

@@ -14,8 +14,9 @@ game_input = { path = "../game_input" }
 game_system = { path = "../game_system" }
 system_audio = { path = "../system_audio" }
 system_camera = { path = "../system_camera" }
-system_static_mesh = { path = "../system_static_mesh" }
 system_interfaces = { path = "../system_interfaces" }
+system_navigation = { path = "../system_navigation" }
+system_static_mesh = { path = "../system_static_mesh" }
 task_executor = { path = "../task_executor" }
 update_buffer = { path = "../update_buffer" }
 

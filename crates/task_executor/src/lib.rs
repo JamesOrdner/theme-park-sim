@@ -4,9 +4,8 @@
 use std::{
     cell::Cell,
     future::Future,
-    iter::zip,
     marker::PhantomPinned,
-    mem::{self, MaybeUninit},
+    mem,
     num::NonZeroUsize,
     pin::Pin,
     ptr,
@@ -20,6 +19,9 @@ use std::{
 };
 
 use spin::Mutex as SpinMutex;
+
+pub mod async_task;
+pub mod task;
 
 /// Stack-pins a value and extends the reference lifetime to 'static.
 macro_rules! pin_unsafe {
@@ -50,6 +52,8 @@ macro_rules! pin_array_unsafe {
         };
     };
 }
+
+pub(crate) use pin_array_unsafe;
 
 enum ChannelMessage {
     Task(Pin<&'static SpinMutex<Task>>),
@@ -180,13 +184,13 @@ impl TaskExecutor {
         *task_guard = false;
     }
 
-    pub fn execute_async<T, U>(&mut self, task: T) -> FixedUpdateTaskHandle<U>
+    pub fn execute_fixed<F, T>(&mut self, task: F) -> FixedTaskHandle<T>
     where
-        T: Future<Output = Box<U>> + Send + 'static,
+        F: Future<Output = Box<T>> + Send + 'static,
     {
         // TODO: start task processing
 
-        FixedUpdateTaskHandle {
+        FixedTaskHandle {
             future: Box::pin(task),
         }
     }
@@ -222,49 +226,16 @@ fn task_wake(task: *const ()) {
     });
 }
 
-pub struct FixedUpdateTaskHandle<T> {
+pub struct FixedTaskHandle<T> {
     future: Pin<Box<dyn Future<Output = Box<T>> + Send + 'static>>,
 }
 
-impl<T> Future for FixedUpdateTaskHandle<T> {
+impl<T> Future for FixedTaskHandle<T> {
     type Output = Box<T>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.future.as_mut().poll(cx)
     }
-}
-
-pub async fn parallel<const N: usize>(futures: [Pin<&mut (dyn Future<Output = ()> + Send)>; N]) {
-    let join_handles = [0; N].map(|_| SpinMutex::default());
-
-    // SAFETY: we block until the future completes.
-    pin_array_unsafe!(join_handles, N, SpinMutex<TaskJoinHandle>);
-
-    let tasks = unsafe {
-        let mut tasks: [MaybeUninit<_>; N] = MaybeUninit::uninit().assume_init();
-        for (task, (future, join_handle)) in zip(&mut tasks, zip(futures, join_handles)) {
-            // SAFETY: we block until the future completes.
-            let future: Pin<&'static mut (dyn Future<Output = ()> + Send)> = mem::transmute(future);
-            task.write(SpinMutex::new(Task::new(future, join_handle)));
-        }
-        tasks.map(|a| a.assume_init())
-    };
-
-    // SAFETY: we block until the future completes.
-    pin_array_unsafe!(tasks, N, SpinMutex<Task>);
-
-    TASK_SENDER.with(|sender| {
-        let sender = unsafe { sender.get().as_ref().unwrap_unchecked() };
-        for task in tasks {
-            sender.send(ChannelMessage::Task(task)).unwrap();
-        }
-    });
-
-    for join_handle in join_handles {
-        JoinHandleTask { join_handle }.await;
-    }
-
-    // TODO: ensure tasks persist across this await point
 }
 
 struct Task {

@@ -1,0 +1,9 @@
+[package]
+name = "system_navigation"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+event = { path = "../event" }
+system_interfaces = { path = "../system_interfaces" }
+task_executor = { path = "../task_executor" }
