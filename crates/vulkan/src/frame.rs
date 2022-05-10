@@ -2,7 +2,7 @@ use std::{mem::size_of, sync::Arc};
 
 use anyhow::Result;
 use erupt::{vk, DeviceLoader};
-use gpu_alloc::{Request, UsageFlags};
+use gpu_alloc::UsageFlags;
 
 use crate::{
     allocator::{GpuAllocator, GpuBuffer},
@@ -139,15 +139,7 @@ impl Frame {
             .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let instance_buffer = allocator.alloc(
-            &uniform_buffer_create_info,
-            Request {
-                size: instance_data_alignment * 4,
-                align_mask: instance_data_alignment,
-                usage: UsageFlags::UPLOAD,
-                memory_types: !0,
-            },
-        );
+        let instance_buffer = allocator.alloc(&uniform_buffer_create_info, UsageFlags::UPLOAD);
 
         // associate uniform buffer memory with descirptor set
 
@@ -222,7 +214,8 @@ impl Frame {
     pub fn update_instance(&mut self, instance_index: usize, transform: &InstanceData) {
         unsafe {
             self.instance_buffer.write(
-                &transform,
+                &self.device,
+                transform,
                 instance_index * self.instance_data_alignment as usize,
             );
         };

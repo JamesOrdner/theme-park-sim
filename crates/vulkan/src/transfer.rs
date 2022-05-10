@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use erupt::{vk, DeviceLoader};
-use gpu_alloc::{Request, UsageFlags};
+use gpu_alloc::UsageFlags;
 
 use crate::{
     allocator::{GpuAllocator, GpuBuffer},
@@ -120,30 +120,32 @@ impl Transfer {
             .usage(vk::BufferUsageFlags::TRANSFER_SRC)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let transfer_buffer = allocator.alloc(
+        let mut transfer_buffer = allocator.alloc(
             &transfer_buffer_create_info,
-            Request {
-                size: data.len() as u64,
-                align_mask: 0,
-                usage: UsageFlags::UPLOAD | UsageFlags::TRANSIENT,
-                memory_types: !0,
-            },
+            UsageFlags::UPLOAD | UsageFlags::TRANSIENT,
         );
+
+        unsafe {
+            transfer_buffer.write_bytes(&self.device, data, 0);
+        }
 
         let dst_buffer_create_info = vk::BufferCreateInfoBuilder::new()
             .size(data.len() as u64)
             .usage(vk::BufferUsageFlags::TRANSFER_DST | dst_usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let dst_buffer = allocator.alloc(
-            &dst_buffer_create_info,
-            Request {
-                size: data.len() as u64,
-                align_mask: 0,
-                usage: UsageFlags::FAST_DEVICE_ACCESS,
-                memory_types: !0,
-            },
-        );
+        let dst_buffer = allocator.alloc(&dst_buffer_create_info, UsageFlags::FAST_DEVICE_ACCESS);
+
+        let copy_region = vk::BufferCopyBuilder::new().size(data.len() as u64);
+
+        unsafe {
+            self.device.cmd_copy_buffer(
+                self.command_buffer,
+                transfer_buffer.buffer,
+                dst_buffer.buffer,
+                &[copy_region],
+            );
+        }
 
         self.transient_buffers.push(transfer_buffer);
 

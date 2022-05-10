@@ -129,7 +129,7 @@ impl GameInput {
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_zoom += match delta {
-                    MouseScrollDelta::LineDelta(_, _) => panic!(),
+                    MouseScrollDelta::LineDelta(_, lines) => lines * 50.0,
                     MouseScrollDelta::PixelDelta(pixels) => pixels.y as f32,
                 };
             }

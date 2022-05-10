@@ -6,7 +6,7 @@ use anyhow::Result;
 use erupt::{vk, EntryLoader};
 use frame_buffer::FrameBufferReader;
 use futures::pin_mut;
-use nalgebra_glm::{look_at_rh, perspective_rh, Mat4};
+use nalgebra_glm::{look_at, perspective, Mat4};
 use pipeline::SceneData;
 use scene::Scene;
 use task_executor::task::parallel;
@@ -199,11 +199,11 @@ impl Vulkan {
         self.pipeline.bind(frame_info.command_buffer);
 
         let scene_data = SceneData {
-            proj_matrix: Mat4::identity(), //perspective_rh(self.aspect, 1.0, 0.01, 50.0),
-            view_matrix: Mat4::identity(), /*frame_buffer
-                                           .camera_info()
-                                           .map(|info| look_at_rh(&info.location, &info.focus, &info.up))
-                                           .unwrap_or_else(Mat4::identity),*/
+            proj_matrix: perspective(self.aspect, 1.0, 0.01, 50.0),
+            view_matrix: frame_buffer
+                .camera_info()
+                .map(|info| look_at(&info.location, &info.focus, &info.up))
+                .unwrap_or_else(Mat4::identity),
         };
 
         unsafe {
@@ -299,8 +299,7 @@ impl Vulkan {
 
             for spawned in frame_buffer.spawned_static_meshes() {
                 const INDICES: [u16; 3] = [0, 1, 2];
-                // const VERTEX_DATA: [f32; 9] = [0.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
-                const VERTEX_DATA: [f32; 9] = [0.0, 1.0, 0.0, -1.0, -1.0, 0.0, 1.0, -1.0, 0.0];
+                const VERTEX_DATA: [f32; 9] = [0.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
 
                 const VERTEX_OFFSET: usize = 8;
                 const SIZE: usize = VERTEX_OFFSET + mem::size_of::<[f32; 9]>();

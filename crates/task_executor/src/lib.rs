@@ -147,8 +147,7 @@ impl TaskExecutor {
     }
 
     pub fn available_parallelism() -> NonZeroUsize {
-        NonZeroUsize::new(1).unwrap()
-        // thread::available_parallelism().expect("unable to determine available parallelism")
+        thread::available_parallelism().expect("unable to determine available parallelism")
     }
 
     pub fn execute_blocking(&mut self, future: Pin<&mut (dyn Future<Output = ()> + Send)>) {

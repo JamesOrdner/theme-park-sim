@@ -7,6 +7,7 @@ use nalgebra_glm::Mat4;
 use crate::device::Device;
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct InstanceData {
     pub model_matrix: Mat4,
 }

@@ -1,4 +1,4 @@
-use std::{mem::size_of, ptr::NonNull, sync::Arc};
+use std::{mem, slice, sync::Arc};
 
 use anyhow::Result;
 use erupt::{vk, DeviceLoader};
@@ -41,11 +41,20 @@ impl GpuAllocator {
     pub fn alloc(
         &mut self,
         buffer_create_info: &vk::BufferCreateInfo,
-        request: Request,
+        usage: UsageFlags,
     ) -> GpuBuffer {
         let buffer = unsafe { self.device.create_buffer(buffer_create_info, None).unwrap() };
 
-        let mut block = unsafe {
+        let memory_requirements = unsafe { self.device.get_buffer_memory_requirements(buffer) };
+
+        let request = Request {
+            size: buffer_create_info.size,
+            align_mask: memory_requirements.alignment - 1,
+            usage,
+            memory_types: memory_requirements.memory_type_bits,
+        };
+
+        let block = unsafe {
             self.allocator
                 .alloc(EruptMemoryDevice::wrap(&self.device), request)
                 .unwrap()
@@ -53,30 +62,11 @@ impl GpuAllocator {
 
         unsafe {
             self.device
-                .bind_buffer_memory(buffer, *block.memory(), 0)
+                .bind_buffer_memory(buffer, *block.memory(), block.offset())
                 .unwrap();
         }
 
-        let data = if !request.usage.contains(UsageFlags::FAST_DEVICE_ACCESS) {
-            let data = unsafe {
-                block
-                    .map(
-                        EruptMemoryDevice::wrap(&self.device),
-                        0,
-                        buffer_create_info.size as usize,
-                    )
-                    .unwrap()
-            };
-            Some(data)
-        } else {
-            None
-        };
-
-        GpuBuffer {
-            buffer,
-            block,
-            data,
-        }
+        GpuBuffer { buffer, block }
     }
 
     pub fn dealloc(&mut self, buffer: GpuBuffer) {
@@ -91,20 +81,26 @@ impl GpuAllocator {
 pub struct GpuBuffer {
     block: MemoryBlock<vk::DeviceMemory>,
     pub buffer: vk::Buffer,
-    data: Option<NonNull<u8>>,
 }
 
 unsafe impl Send for GpuBuffer {}
 
 impl GpuBuffer {
-    pub unsafe fn write<T>(&mut self, data: &T, offset: usize)
+    pub unsafe fn write<T>(&mut self, device: &DeviceLoader, data: &T, offset: usize)
     where
         T: Copy,
     {
-        debug_assert!(self.data.is_some(), "cannot write to device local memory");
-        let data_ptr = self.data.unwrap_unchecked().as_ptr();
-        let data_offset = data_ptr.add(offset) as *mut T;
-        debug_assert!(offset + size_of::<T>() <= self.block.size() as usize);
-        *data_offset = *data;
+        let len = mem::size_of::<T>();
+        let bytes = slice::from_raw_parts(data as *const T as *const u8, len);
+
+        self.block
+            .write_bytes(EruptMemoryDevice::wrap(device), offset as u64, bytes)
+            .unwrap();
+    }
+
+    pub unsafe fn write_bytes(&mut self, device: &DeviceLoader, data: &[u8], offset: usize) {
+        self.block
+            .write_bytes(EruptMemoryDevice::wrap(device), offset as u64, data)
+            .unwrap();
     }
 }
