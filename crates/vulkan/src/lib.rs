@@ -6,7 +6,7 @@ use anyhow::Result;
 use erupt::{vk, EntryLoader};
 use frame_buffer::FrameBufferReader;
 use futures::pin_mut;
-use nalgebra_glm::{look_at, perspective, Mat4};
+use nalgebra_glm::{look_at_lh, perspective_lh_zo, Mat4};
 use pipeline::SceneData;
 use scene::Scene;
 use task_executor::task::parallel;
@@ -198,12 +198,19 @@ impl Vulkan {
 
         self.pipeline.bind(frame_info.command_buffer);
 
-        let scene_data = SceneData {
-            proj_matrix: perspective(self.aspect, 1.0, 0.01, 50.0),
-            view_matrix: frame_buffer
+        let scene_data = {
+            let mut proj_matrix = perspective_lh_zo(self.aspect, 1.0, 0.01, 50.0);
+            proj_matrix[5] *= -1.0;
+
+            let view_matrix = frame_buffer
                 .camera_info()
-                .map(|info| look_at(&info.location, &info.focus, &info.up))
-                .unwrap_or_else(Mat4::identity),
+                .map(|info| look_at_lh(&info.location, &info.focus, &info.up))
+                .unwrap_or_else(Mat4::identity);
+
+            SceneData {
+                proj_matrix,
+                view_matrix,
+            }
         };
 
         unsafe {
