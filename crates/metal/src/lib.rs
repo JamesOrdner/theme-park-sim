@@ -11,7 +11,7 @@ use metal::{
     Buffer, CommandQueue, Device, MTLClearColor, MTLIndexType, MTLLoadAction, MTLPixelFormat,
     MTLPrimitiveType, MTLResourceOptions, MetalLayer, NSRange, NSUInteger, RenderPassDescriptor,
 };
-use nalgebra_glm::{look_at_lh, perspective_lh, translate, Mat4, Vec3};
+use nalgebra_glm::{look_at_lh, perspective_lh_zo, translate, Mat4, Vec3};
 use objc::{rc::autoreleasepool, runtime::YES};
 use winit::{dpi::PhysicalSize, platform::macos::WindowExtMacOS, window::Window};
 
@@ -94,7 +94,7 @@ impl Metal {
         }
 
         let proj_view = ProjView {
-            _proj: perspective_lh(self.aspect, 1.0, 0.01, 50.0),
+            _proj: perspective_lh_zo(self.aspect, 1.0, 0.01, 50.0),
             _view: frame_buffer
                 .camera_info()
                 .map(|info| look_at_lh(&info.location, &info.focus, &info.up))
