@@ -2,7 +2,7 @@ use std::{mem::size_of, ptr::NonNull, sync::Arc};
 
 use anyhow::Result;
 use erupt::{vk, DeviceLoader};
-use gpu_alloc::{Config, MemoryBlock, Request};
+use gpu_alloc::{Config, MemoryBlock, Request, UsageFlags};
 use gpu_alloc_erupt::{device_properties, EruptMemoryDevice};
 
 use crate::VulkanInfo;
@@ -42,40 +42,44 @@ impl GpuAllocator {
         &mut self,
         buffer_create_info: &vk::BufferCreateInfo,
         request: Request,
-    ) -> Result<Buffer> {
-        let buffer = unsafe {
-            self.device
-                .create_buffer(buffer_create_info, None)
-                .result()?
-        };
+    ) -> GpuBuffer {
+        let buffer = unsafe { self.device.create_buffer(buffer_create_info, None).unwrap() };
 
         let mut block = unsafe {
             self.allocator
-                .alloc(EruptMemoryDevice::wrap(&self.device), request)?
+                .alloc(EruptMemoryDevice::wrap(&self.device), request)
+                .unwrap()
         };
 
         unsafe {
             self.device
                 .bind_buffer_memory(buffer, *block.memory(), 0)
-                .result()?;
+                .unwrap();
         }
 
-        let data = unsafe {
-            block.map(
-                EruptMemoryDevice::wrap(&self.device),
-                0,
-                buffer_create_info.size as usize,
-            )?
+        let data = if !request.usage.contains(UsageFlags::FAST_DEVICE_ACCESS) {
+            let data = unsafe {
+                block
+                    .map(
+                        EruptMemoryDevice::wrap(&self.device),
+                        0,
+                        buffer_create_info.size as usize,
+                    )
+                    .unwrap()
+            };
+            Some(data)
+        } else {
+            None
         };
 
-        Ok(Buffer {
+        GpuBuffer {
             buffer,
             block,
             data,
-        })
+        }
     }
 
-    pub fn dealloc(&mut self, buffer: Buffer) {
+    pub fn dealloc(&mut self, buffer: GpuBuffer) {
         unsafe {
             self.device.destroy_buffer(buffer.buffer, None);
             self.allocator
@@ -84,18 +88,22 @@ impl GpuAllocator {
     }
 }
 
-pub struct Buffer {
+pub struct GpuBuffer {
     block: MemoryBlock<vk::DeviceMemory>,
     pub buffer: vk::Buffer,
-    data: NonNull<u8>,
+    data: Option<NonNull<u8>>,
 }
 
-impl Buffer {
+unsafe impl Send for GpuBuffer {}
+
+impl GpuBuffer {
     pub unsafe fn write<T>(&mut self, data: &T, offset: usize)
     where
         T: Copy,
     {
-        let data_offset = self.data.as_ptr().add(offset) as *mut T;
+        debug_assert!(self.data.is_some(), "cannot write to device local memory");
+        let data_ptr = self.data.unwrap_unchecked().as_ptr();
+        let data_offset = data_ptr.add(offset) as *mut T;
         debug_assert!(offset + size_of::<T>() <= self.block.size() as usize);
         *data_offset = *data;
     }

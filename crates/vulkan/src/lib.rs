@@ -1,10 +1,15 @@
 #![cfg(not(target_vendor = "apple"))]
 
+use std::{mem, slice};
+
 use anyhow::Result;
 use erupt::{vk, EntryLoader};
 use frame_buffer::FrameBufferReader;
-use nalgebra_glm::Mat4;
+use futures::pin_mut;
+use nalgebra_glm::{look_at_rh, perspective_rh, Mat4};
+use pipeline::SceneData;
 use scene::Scene;
+use task_executor::task::parallel;
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{
@@ -15,6 +20,7 @@ use crate::{
     instance::Instance,
     pipeline::Pipeline,
     swapchain::Swapchain,
+    transfer::Transfer,
 };
 
 mod allocator;
@@ -26,6 +32,7 @@ mod pipeline;
 mod scene;
 mod static_mesh;
 mod swapchain;
+mod transfer;
 
 macro_rules! cstr {
     ($s:expr) => {
@@ -45,12 +52,14 @@ pub struct VulkanInfo {
 
 pub struct Vulkan {
     scene: Scene,
+    transfer: Transfer,
     frames: [Option<Frame>; 2],
     current_frame_index: bool,
     allocator: GpuAllocator,
     pipeline: Pipeline,
     swapchain: Swapchain,
     vulkan_info: VulkanInfo,
+    aspect: f32,
 }
 
 impl Vulkan {
@@ -73,19 +82,26 @@ impl Vulkan {
 
         let mut allocator = GpuAllocator::new(&vulkan_info)?;
 
+        let transfer = Transfer::new(&vulkan_info)?;
+
         let frames = [
             Some(Frame::new(&vulkan_info, &mut allocator)?),
             Some(Frame::new(&vulkan_info, &mut allocator)?),
         ];
 
+        let size = window.inner_size();
+        let aspect = size.width as f32 / size.height as f32;
+
         Ok(Self {
             scene: Default::default(),
             frames,
+            transfer,
             current_frame_index: false,
             allocator,
             pipeline,
             swapchain,
             vulkan_info,
+            aspect,
         })
     }
 }
@@ -95,6 +111,8 @@ impl Drop for Vulkan {
         unsafe {
             self.vulkan_info.device.device_wait_idle().unwrap();
 
+            self.scene.destroy(&mut self.allocator);
+
             for frame in &mut self.frames {
                 frame.take().unwrap().destroy(&mut self.allocator);
             }
@@ -103,10 +121,12 @@ impl Drop for Vulkan {
 }
 
 impl Vulkan {
-    pub fn window_resized(&mut self, _size: PhysicalSize<u32>) {}
+    pub fn window_resized(&mut self, size: PhysicalSize<u32>) {
+        self.aspect = size.width as f32 / size.height as f32;
+    }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
-        self.update_scene(frame_buffer);
+        self.update_scene(frame_buffer).await;
 
         let frame_info = self.frames[self.current_frame_index as usize]
             .as_mut()
@@ -174,7 +194,59 @@ impl Vulkan {
                 .cmd_begin_rendering(frame_info.command_buffer, &rendering_info);
         }
 
+        // render static mesh instances
+
         self.pipeline.bind(frame_info.command_buffer);
+
+        let scene_data = SceneData {
+            proj_matrix: Mat4::identity(), //perspective_rh(self.aspect, 1.0, 0.01, 50.0),
+            view_matrix: Mat4::identity(), /*frame_buffer
+                                           .camera_info()
+                                           .map(|info| look_at_rh(&info.location, &info.focus, &info.up))
+                                           .unwrap_or_else(Mat4::identity),*/
+        };
+
+        unsafe {
+            self.vulkan_info.device.cmd_push_constants(
+                frame_info.command_buffer,
+                self.pipeline.layout(),
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                mem::size_of::<SceneData>() as u32,
+                &scene_data as *const _ as *const _,
+            )
+        }
+
+        for (i, static_mesh) in self.scene.static_meshes.iter().enumerate() {
+            unsafe {
+                self.vulkan_info.device.cmd_bind_descriptor_sets(
+                    frame_info.command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline.layout(),
+                    0,
+                    &[frame_info.instance_descriptor_set],
+                    &[i as u32],
+                );
+
+                self.vulkan_info.device.cmd_bind_index_buffer(
+                    frame_info.command_buffer,
+                    static_mesh.vertex_buffer.buffer,
+                    0,
+                    vk::IndexType::UINT16,
+                );
+
+                self.vulkan_info.device.cmd_bind_vertex_buffers(
+                    frame_info.command_buffer,
+                    0,
+                    &[static_mesh.vertex_buffer.buffer],
+                    &[static_mesh.vertex_offset],
+                );
+
+                self.vulkan_info
+                    .device
+                    .cmd_draw_indexed(frame_info.command_buffer, 3, 1, 0, 0, 0);
+            }
+        }
 
         unsafe {
             self.vulkan_info
@@ -221,22 +293,68 @@ impl Vulkan {
         self.current_frame_index = !self.current_frame_index;
     }
 
-    fn update_scene(&mut self, frame_buffer: &FrameBufferReader) {
-        for spawned in frame_buffer.spawned_static_meshes() {
-            self.scene.static_meshes.push(scene::StaticMesh {
-                entity_id: spawned.entity_id,
-            });
+    async fn update_scene(&mut self, frame_buffer: &FrameBufferReader<'_>) {
+        let upload_meshes = async {
+            self.transfer.begin_transfers(&mut self.allocator).unwrap();
+
+            for spawned in frame_buffer.spawned_static_meshes() {
+                const INDICES: [u16; 3] = [0, 1, 2];
+                // const VERTEX_DATA: [f32; 9] = [0.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
+                const VERTEX_DATA: [f32; 9] = [0.0, 1.0, 0.0, -1.0, -1.0, 0.0, 1.0, -1.0, 0.0];
+
+                const VERTEX_OFFSET: usize = 8;
+                const SIZE: usize = VERTEX_OFFSET + mem::size_of::<[f32; 9]>();
+
+                let mut data = [0; SIZE];
+
+                unsafe {
+                    let data = data.as_mut_ptr();
+                    let indices = slice::from_raw_parts_mut(data as *mut u16, INDICES.len());
+                    indices.copy_from_slice(&INDICES);
+
+                    let data = data.add(VERTEX_OFFSET);
+                    let vertices = slice::from_raw_parts_mut(data as *mut f32, VERTEX_DATA.len());
+                    vertices.copy_from_slice(&VERTEX_DATA);
+                }
+
+                let vertex_buffer = self.transfer.transfer_buffer(
+                    &data,
+                    vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::INDEX_BUFFER,
+                    &mut self.allocator,
+                );
+
+                // create vertex buffer and transfer
+
+                self.scene.static_meshes.push(scene::StaticMesh {
+                    entity_id: spawned.entity_id,
+                    vertex_buffer,
+                    vertex_offset: VERTEX_OFFSET as vk::DeviceSize,
+                });
+            }
+
+            self.transfer.submit_transfers().unwrap();
+        };
+
+        let update_instances = async {
+            let frame = self.frames[self.current_frame_index as usize]
+                .as_mut()
+                .unwrap();
+
+            frame.update_instance(
+                0,
+                &InstanceData {
+                    model_matrix: Mat4::identity(),
+                },
+            );
+        };
+
+        pin_mut!(upload_meshes);
+        pin_mut!(update_instances);
+
+        parallel([upload_meshes, update_instances]).await;
+
+        unsafe {
+            self.vulkan_info.device.device_wait_idle().unwrap();
         }
-
-        let frame = self.frames[self.current_frame_index as usize]
-            .as_mut()
-            .unwrap();
-
-        frame.update_instance(
-            0,
-            &InstanceData {
-                model_matrix: Mat4::identity(),
-            },
-        );
     }
 }
