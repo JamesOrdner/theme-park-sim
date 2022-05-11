@@ -647,6 +647,7 @@ dependencies = [
  "game_controller",
  "game_input",
  "game_system",
+ "game_vr",
  "metal 0.0.0",
  "system_audio",
  "system_camera",
@@ -684,6 +685,14 @@ dependencies = [
 [[package]]
 name = "game_system"
 version = "0.0.0"
+
+[[package]]
+name = "game_vr"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "openxr",
+]
 
 [[package]]
 name = "glob"
@@ -1345,6 +1354,30 @@ name = "once_cell"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
+
+[[package]]
+name = "openxr"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "679da4d6e5534eb5c9ce356deca1b4aedebb93e4c4322c68f22f53e78e578479"
+dependencies = [
+ "libc",
+ "libloading",
+ "ndk-glue 0.6.2",
+ "openxr-sys",
+ "winapi",
+]
+
+[[package]]
+name = "openxr-sys"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f2705ce9c69c69d73523fd1ca3059526a51f6c336b5605286fad5a71d95ffc2"
+dependencies = [
+ "jni",
+ "libc",
+ "winapi",
+]
 
 [[package]]
 name = "parking_lot"

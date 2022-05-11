@@ -6,6 +6,7 @@ use futures::pin_mut;
 use game_controller::GameController;
 use game_input::GameInput;
 use game_system::FIXED_TIMESTEP;
+use game_vr::GameVr;
 use system_interfaces::SystemData;
 use task_executor::{task::parallel, TaskExecutor};
 use winit::{
@@ -34,6 +35,7 @@ pub struct GameEngine {
     input: GameInput,
     last_fixed_update_instant: Instant,
     last_frame_update_instant: Instant,
+    vr: Option<GameVr>,
 
     #[cfg(target_vendor = "apple")]
     graphics: Metal,
@@ -57,6 +59,8 @@ impl GameEngine {
             frame_buffer_manager.assign_thread_frame_buffer(thread_index);
         });
 
+        GameVr::new().unwrap();
+
         #[cfg(target_vendor = "apple")]
         let graphics = Metal::new(window).unwrap();
 
@@ -75,6 +79,7 @@ impl GameEngine {
             input,
             last_fixed_update_instant: Instant::now(),
             last_frame_update_instant: Instant::now(),
+            vr: None,
             graphics,
         }
     }

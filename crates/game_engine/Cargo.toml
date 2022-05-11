@@ -12,6 +12,7 @@ frame_buffer = { path = "../frame_buffer" }
 game_controller = { path = "../game_controller" }
 game_input = { path = "../game_input" }
 game_system = { path = "../game_system" }
+game_vr = { path = "../game_vr" }
 system_audio = { path = "../system_audio" }
 system_camera = { path = "../system_camera" }
 system_interfaces = { path = "../system_interfaces" }
