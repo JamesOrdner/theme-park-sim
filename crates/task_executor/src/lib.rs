@@ -7,8 +7,9 @@ use std::{
     marker::PhantomPinned,
     mem,
     num::NonZeroUsize,
+    panic,
     pin::Pin,
-    ptr,
+    process, ptr,
     sync::{
         atomic::{AtomicPtr, Ordering},
         mpsc::{self, Sender},
@@ -79,6 +80,12 @@ pub struct TaskExecutor {
 
 impl TaskExecutor {
     pub fn new(thread_count: NonZeroUsize, register_thread: &(dyn Fn(usize) + Sync)) -> Self {
+        let default_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |err| {
+            default_hook(err);
+            process::exit(1);
+        }));
+
         // SAFETY: we do not return until all the threads have run the registration callback
         let register_thread =
             unsafe { mem::transmute::<_, &'static (dyn Fn(usize) + Sync)>(register_thread) };
