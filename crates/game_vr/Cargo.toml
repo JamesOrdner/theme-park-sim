@@ -3,12 +3,11 @@ name = "game_vr"
 version = "0.0.0"
 edition = "2021"
 
-[dependencies]
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
 anyhow = "1.0.56"
 erupt = "0.22"
 log = "0.4.16"
 openxr = { version = "0.16.0", features = ["loaded"] }
 winit = "0.26.1"
 
-[target.'cfg(not(target_vendor = "apple"))'.dependencies]
 vulkan = { path = "../vulkan" }
