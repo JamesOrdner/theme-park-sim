@@ -58,24 +58,29 @@ impl Default for FixedData {
             .supported_output_configs()
             .expect("no audio configs")
             .find(|config| {
-                matches!(config.sample_format(), SampleFormat::F32) && config.channels() == 2
+                matches!(config.sample_format(), SampleFormat::F32) && config.channels() >= 2
             })
             .expect("no supported audio device");
 
         let sample_rate = min(config.max_sample_rate().0, 48000);
         let buffer_size = match config.buffer_size() {
-            SupportedBufferSize::Range { min, max } => 2048.clamp(*min, *max),
-            _ => panic!("unable to determine audio buffer size"),
+            SupportedBufferSize::Range { min, max } => BufferSize::Fixed(512.clamp(*min, *max)),
+            SupportedBufferSize::Unknown => BufferSize::Default,
         };
 
+        let buffer_len = match buffer_size {
+            BufferSize::Default => 480, // best guess, windows defaults to 480
+            BufferSize::Fixed(len) => len,
+        };
         // we always want to have FIXED_TIMESTEP * buffer_size ready to play
-        let ringbuf_len = FIXED_TIMESTEP.as_millis() as u32 * sample_rate / 1000 + buffer_size;
+        let ringbuf_len = FIXED_TIMESTEP.as_millis() as u32 * sample_rate / 1000 + buffer_len;
         let (audio_producer, audio_consumer) = RingBuffer::new(ringbuf_len as usize).split();
 
         let mut audio_player = AudioPlayer::new(audio_consumer);
 
         let mut config = config.with_sample_rate(SampleRate(sample_rate)).config();
-        config.buffer_size = BufferSize::Fixed(buffer_size);
+        config.channels = 2;
+        config.buffer_size = buffer_size;
         let stream = device
             .build_output_stream(
                 &config,
