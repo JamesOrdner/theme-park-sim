@@ -1,16 +1,28 @@
-use std::path::Path;
+use std::mem;
 
 use anyhow::{Error, Result};
+use erupt::vk;
 use openxr as xr;
+use vulkan::Vulkan;
+use winit::window::Window;
 
-pub struct GameVr {}
+const BLEND_MODE: xr::EnvironmentBlendMode = xr::EnvironmentBlendMode::OPAQUE;
+const VIEW_CONFIGURATION: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
+
+pub struct GameVr {
+    swapchain_extent: xr::Extent2Di,
+    space: xr::Space,
+    swapchain: xr::Swapchain<xr::Vulkan>,
+    frame_stream: xr::FrameStream<xr::Vulkan>,
+    frame_waiter: xr::FrameWaiter,
+    session: xr::Session<xr::Vulkan>,
+    _system: xr::SystemId,
+    _instance: xr::Instance,
+}
 
 impl GameVr {
-    pub fn new() -> Result<Self> {
-        let entry = xr::Entry::load().or_else(|_| {
-            let linux_path = Path::new("/home/james/snap/steam/common/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/libopenxr_loader.so");
-            xr::Entry::load_from(linux_path)
-        })?;
+    pub fn new(window: &Window) -> Result<(Self, Vulkan)> {
+        let entry = xr::Entry::load_from(std::path::Path::new("C:\\Program Files (x86)\\Steam\\steamapps\\common\\SteamVR\\bin\\win64\\openxr_loader.dll"))?;
 
         let available_extensions = entry.enumerate_extensions()?;
 
@@ -21,20 +33,199 @@ impl GameVr {
         let mut enabled_extensions = xr::ExtensionSet::default();
         enabled_extensions.khr_vulkan_enable2 = true;
 
-        let instance =
-            entry.create_instance(&xr::ApplicationInfo::default(), &enabled_extensions, &[])?;
+        let instance = entry.create_instance(
+            &xr::ApplicationInfo {
+                application_name: "Theme Park Sim",
+                application_version: 0,
+                engine_name: "Theme Park Engine",
+                engine_version: 0,
+            },
+            &enabled_extensions,
+            &[],
+        )?;
 
         let system = instance.system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)?;
 
-        let blend_mode = instance
-            .enumerate_environment_blend_modes(system, xr::ViewConfigurationType::PRIMARY_STEREO)?
+        let graphics_requirements = instance.graphics_requirements::<xr::Vulkan>(system)?;
+
+        if graphics_requirements.min_api_version_supported > xr::Version::new(1, 3, 0) {
+            return Err(Error::msg(format!(
+                "Vulkan version older than supported by OpenXR: min version {}.{}.{}",
+                graphics_requirements.min_api_version_supported.major(),
+                graphics_requirements.min_api_version_supported.minor(),
+                graphics_requirements.min_api_version_supported.patch(),
+            )));
+        }
+
+        if graphics_requirements.max_api_version_supported < xr::Version::new(1, 3, 0) {
+            log::warn!(
+                "Vulkan version newer than supported by OpenXR: max version {}.{}.{}",
+                graphics_requirements.max_api_version_supported.major(),
+                graphics_requirements.max_api_version_supported.minor(),
+                graphics_requirements.max_api_version_supported.patch(),
+            );
+        }
+
+        instance
+            .enumerate_environment_blend_modes(system, VIEW_CONFIGURATION)?
             .iter()
-            .find(|mode| **mode == xr::EnvironmentBlendMode::OPAQUE)
+            .find(|mode| **mode == BLEND_MODE)
             .copied()
             .ok_or(Error::msg("opaque blend mode unavailable"))?;
 
-        println!("blend_mode {}", blend_mode.into_raw());
+        let (vulkan, xr_create_info) = Vulkan::new_vr(
+            window,
+            |get_instance_proc_addr, create_info| unsafe {
+                let vk_instance = instance
+                    .create_vulkan_instance(
+                        system,
+                        mem::transmute(get_instance_proc_addr),
+                        create_info as *const _ as _,
+                    )
+                    .expect("OpenXR error creating Vulkan instance")
+                    .expect("Vulkan error creating Vulkan instance");
 
-        Ok(Self {})
+                let physical_device = instance
+                    .vulkan_graphics_device(system, vk_instance)
+                    .expect("OpenXR error selecting Vulkan physcial device");
+
+                (
+                    vk::Instance(vk_instance as _),
+                    vk::PhysicalDevice(physical_device as _),
+                )
+            },
+            |get_instance_proc_addr, physical_device, create_info| unsafe {
+                let device = instance
+                    .create_vulkan_device(
+                        system,
+                        mem::transmute(get_instance_proc_addr),
+                        physical_device.0 as *const _,
+                        create_info as *const _ as *const _,
+                    )
+                    .expect("OpenXR error creating Vulkan device")
+                    .expect("Vulkan error creating Vulkan device");
+
+                vk::Device(device as _)
+            },
+        )?;
+
+        let (session, frame_waiter, frame_stream) = unsafe {
+            instance.create_session::<xr::Vulkan>(
+                system,
+                &xr::vulkan::SessionCreateInfo {
+                    instance: xr_create_info.instance.0 as _,
+                    physical_device: xr_create_info.physical_device.0 as _,
+                    device: xr_create_info.device.0 as _,
+                    queue_family_index: xr_create_info.queue_family_index,
+                    queue_index: xr_create_info.queue_index,
+                },
+            )?
+        };
+
+        let views = instance.enumerate_view_configuration_views(system, VIEW_CONFIGURATION)?;
+
+        if views.len() != 2 || views[0] != views[1] {
+            return Err(Error::msg("invalid view configuration"));
+        }
+
+        let swapchain_extent = xr::Extent2Di {
+            width: views[0].recommended_image_rect_width as i32,
+            height: views[0].recommended_image_rect_height as i32,
+        };
+
+        let swapchain = session.create_swapchain(&xr::SwapchainCreateInfo {
+            create_flags: xr::SwapchainCreateFlags::EMPTY,
+            usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
+                | xr::SwapchainUsageFlags::SAMPLED,
+            format: vk::Format::R8G8B8A8_SRGB.0 as _,
+            sample_count: 1,
+            width: swapchain_extent.width as u32,
+            height: swapchain_extent.height as u32,
+            face_count: 1,
+            array_size: 2,
+            mip_count: 1,
+        })?;
+
+        let space =
+            session.create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)?;
+
+        let vr = Self {
+            swapchain_extent,
+            space,
+            swapchain,
+            frame_stream,
+            frame_waiter,
+            session,
+            _system: system,
+            _instance: instance,
+        };
+
+        Ok((vr, vulkan))
+    }
+
+    pub async fn frame(&mut self, vulkan: &mut Vulkan) {
+        self.frame_stream.begin().unwrap();
+
+        let frame_state = self.frame_waiter.wait().unwrap();
+
+        if !frame_state.should_render {
+            self.frame_stream
+                .end(frame_state.predicted_display_time, BLEND_MODE, &[])
+                .unwrap();
+            return;
+        }
+
+        let swapchain_index = self.swapchain.acquire_image().unwrap();
+
+        self.swapchain.wait_image(xr::Duration::INFINITE).unwrap();
+
+        let (view_flags, views) = self
+            .session
+            .locate_views(
+                VIEW_CONFIGURATION,
+                frame_state.predicted_display_time,
+                &self.space,
+            )
+            .unwrap();
+
+        // set user-interactive matrices (i.e. view matrix) and submit to GPU
+
+        self.swapchain.release_image().unwrap();
+
+        let rect = xr::Rect2Di {
+            offset: xr::Offset2Di { x: 0, y: 0 },
+            extent: self.swapchain_extent,
+        };
+
+        let views = [
+            xr::CompositionLayerProjectionView::new()
+                .pose(views[0].pose)
+                .fov(views[0].fov)
+                .sub_image(
+                    xr::SwapchainSubImage::new()
+                        .swapchain(&self.swapchain)
+                        .image_array_index(0)
+                        .image_rect(rect),
+                ),
+            xr::CompositionLayerProjectionView::new()
+                .pose(views[1].pose)
+                .fov(views[1].fov)
+                .sub_image(
+                    xr::SwapchainSubImage::new()
+                        .swapchain(&self.swapchain)
+                        .image_array_index(1)
+                        .image_rect(rect),
+                ),
+        ];
+
+        self.frame_stream
+            .end(
+                frame_state.predicted_display_time,
+                BLEND_MODE,
+                &[&xr::CompositionLayerProjection::new()
+                    .space(&self.space)
+                    .views(&views)],
+            )
+            .unwrap();
     }
 }

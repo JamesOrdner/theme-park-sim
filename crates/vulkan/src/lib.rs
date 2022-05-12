@@ -1,6 +1,6 @@
 #![cfg(not(target_vendor = "apple"))]
 
-use std::{mem, slice};
+use std::{ffi::c_void, mem, slice};
 
 use anyhow::Result;
 use erupt::{vk, EntryLoader};
@@ -62,6 +62,14 @@ pub struct Vulkan {
     aspect: f32,
 }
 
+pub struct XrCreateInfo {
+    pub instance: vk::Instance,
+    pub physical_device: vk::PhysicalDevice,
+    pub device: vk::Device,
+    pub queue_family_index: u32,
+    pub queue_index: u32,
+}
+
 impl Vulkan {
     pub fn new(window: &Window) -> Result<Self> {
         let entry = EntryLoader::new()?;
@@ -103,6 +111,80 @@ impl Vulkan {
             vulkan_info,
             aspect,
         })
+    }
+
+    pub fn new_vr<I, D>(
+        window: &Window,
+        create_instance: I,
+        create_device: D,
+    ) -> Result<(Self, XrCreateInfo)>
+    where
+        I: FnOnce(
+            vk::PFN_vkGetInstanceProcAddr,
+            &vk::InstanceCreateInfo,
+        ) -> (vk::Instance, vk::PhysicalDevice),
+        D: FnOnce(
+            vk::PFN_vkGetInstanceProcAddr,
+            vk::PhysicalDevice,
+            &vk::DeviceCreateInfo,
+        ) -> vk::Device,
+    {
+        let entry = EntryLoader::new()?;
+        let mut physical_device = vk::PhysicalDevice::null();
+        let instance = Instance::new_vr(&entry, window, |create_info| {
+            let (instance, device) = create_instance(entry.get_instance_proc_addr, create_info);
+            physical_device = device;
+            instance
+        })?;
+        let device = Device::new_vr(&instance, physical_device, |create_info| {
+            create_device(entry.get_instance_proc_addr, physical_device, create_info)
+        })?;
+        let descriptor_set_layouts = DescriptorSetLayouts::new(&device)?;
+
+        let vulkan_info = VulkanInfo {
+            descriptor_set_layouts,
+            device,
+            instance,
+            _entry: entry,
+        };
+
+        let swapchain = Swapchain::new(&vulkan_info)?;
+
+        let pipeline = Pipeline::new(&vulkan_info, &swapchain, "default")?;
+
+        let mut allocator = GpuAllocator::new(&vulkan_info)?;
+
+        let transfer = Transfer::new(&vulkan_info)?;
+
+        let frames = [
+            Some(Frame::new(&vulkan_info, &mut allocator)?),
+            Some(Frame::new(&vulkan_info, &mut allocator)?),
+        ];
+
+        let size = window.inner_size();
+        let aspect = size.width as f32 / size.height as f32;
+
+        let vulkan = Self {
+            scene: Default::default(),
+            frames,
+            transfer,
+            current_frame_index: false,
+            allocator,
+            pipeline,
+            swapchain,
+            vulkan_info,
+            aspect,
+        };
+
+        let xr_create_info = XrCreateInfo {
+            instance: vulkan.vulkan_info.instance.handle,
+            physical_device: vulkan.vulkan_info.device.physical_device,
+            device: vulkan.vulkan_info.device.handle,
+            queue_family_index: vulkan.vulkan_info.device.queues.graphics.family_index,
+            queue_index: 0,
+        };
+
+        Ok((vulkan, xr_create_info))
     }
 }
 

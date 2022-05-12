@@ -691,7 +691,11 @@ name = "game_vr"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "erupt",
+ "log",
  "openxr",
+ "vulkan",
+ "winit",
 ]
 
 [[package]]

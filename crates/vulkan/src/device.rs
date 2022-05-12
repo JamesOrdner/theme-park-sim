@@ -1,7 +1,7 @@
 use std::{ffi::CStr, ops::Deref, os::raw::c_char, sync::Arc};
 
 use anyhow::{Error, Result};
-use erupt::{vk, DeviceLoader, ExtendableFrom};
+use erupt::{vk, DeviceLoader, DeviceLoaderBuilder, ExtendableFrom};
 use smallvec::SmallVec;
 
 use crate::instance::Instance;
@@ -58,6 +58,85 @@ impl Device {
             .extend_from(&mut synchronization2_features);
 
         let device_loader = unsafe { DeviceLoader::new(instance, physical_device, &create_info)? };
+        let device_loader = Arc::new(device_loader);
+
+        // retrieve queue handles
+
+        let graphics_queue = unsafe {
+            device_loader.get_device_queue(device_queue_families_info.graphics_family_index, 0)
+        };
+        let present_queue = unsafe {
+            device_loader.get_device_queue(device_queue_families_info.present_family_index, 0)
+        };
+        let transfer_queue = unsafe {
+            device_loader.get_device_queue(device_queue_families_info.transfer_family_index, 0)
+        };
+
+        let queues = Queues {
+            graphics: Queue {
+                queue: graphics_queue,
+                family_index: device_queue_families_info.graphics_family_index,
+            },
+            present: Queue {
+                queue: present_queue,
+                family_index: device_queue_families_info.present_family_index,
+            },
+            transfer: Queue {
+                queue: transfer_queue,
+                family_index: device_queue_families_info.transfer_family_index,
+            },
+        };
+
+        Ok(Device {
+            loader: device_loader,
+            physical_device,
+            queues,
+        })
+    }
+
+    pub fn new_vr<F>(
+        instance: &Instance,
+        physical_device: vk::PhysicalDevice,
+        create_device: F,
+    ) -> Result<Self>
+    where
+        F: FnOnce(&vk::DeviceCreateInfo) -> vk::Device,
+    {
+        let required_device_extensions = [vk::KHR_SWAPCHAIN_EXTENSION_NAME];
+
+        // create logical device
+
+        let device_queue_families_info =
+            physical_device_queue_families_info(instance, physical_device)?
+                .ok_or_else(|| Error::msg("no suitable physical device found"))?;
+        let queue_priorities = [0.0];
+        let queue_create_infos: SmallVec<[_; 3]> = device_queue_families_info
+            .unique_family_indices()
+            .into_iter()
+            .map(|queue_family_index| {
+                vk::DeviceQueueCreateInfoBuilder::new()
+                    .queue_family_index(queue_family_index)
+                    .queue_priorities(&queue_priorities)
+            })
+            .collect();
+
+        let mut dynamic_rendering_features =
+            vk::PhysicalDeviceDynamicRenderingFeaturesBuilder::new().dynamic_rendering(true);
+
+        let mut synchronization2_features =
+            vk::PhysicalDeviceSynchronization2FeaturesBuilder::new().synchronization2(true);
+
+        let create_info = vk::DeviceCreateInfoBuilder::new()
+            .queue_create_infos(&queue_create_infos)
+            .enabled_extension_names(&required_device_extensions)
+            .extend_from(&mut dynamic_rendering_features)
+            .extend_from(&mut synchronization2_features);
+
+        let device = create_device(&create_info);
+
+        let device_loader = unsafe {
+            DeviceLoaderBuilder::new().build_with_existing_device(instance, device, &create_info)?
+        };
         let device_loader = Arc::new(device_loader);
 
         // retrieve queue handles

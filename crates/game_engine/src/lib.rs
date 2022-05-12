@@ -59,13 +59,15 @@ impl GameEngine {
             frame_buffer_manager.assign_thread_frame_buffer(thread_index);
         });
 
-        GameVr::new().unwrap();
-
         #[cfg(target_vendor = "apple")]
-        let graphics = Metal::new(window).unwrap();
+        let (vr, graphics) = (None, Metal::new(window).unwrap());
 
         #[cfg(not(target_vendor = "apple"))]
-        let graphics = Vulkan::new(window).unwrap();
+        let (vr, graphics) = if let Ok((vr, graphics)) = GameVr::new(window) {
+            (Some(vr), graphics)
+        } else {
+            (None, Vulkan::new(window).unwrap())
+        };
 
         let system_data = system_data();
 
@@ -79,7 +81,7 @@ impl GameEngine {
             input,
             last_fixed_update_instant: Instant::now(),
             last_frame_update_instant: Instant::now(),
-            vr: None,
+            vr,
             graphics,
         }
     }
@@ -160,20 +162,34 @@ impl GameEngine {
             .as_secs_f32();
         self.last_frame_update_instant = now;
 
-        let frame_task = async {
-            let frame_update_task =
-                self.frame_update
-                    .update(&event_delegate, &frame_buffer_writer, delta_time);
+        let frame_update_task =
+            self.frame_update
+                .update(&event_delegate, &frame_buffer_writer, delta_time);
 
-            let graphics_task = self.graphics.frame(&frame_buffer_reader);
+        if let Some(vr) = &mut self.vr {
+            let frame_task = async {
+                let graphics_task = vr.frame(&mut self.graphics);
 
-            pin_mut!(frame_update_task);
-            pin_mut!(graphics_task);
+                pin_mut!(frame_update_task);
+                pin_mut!(graphics_task);
 
-            parallel([frame_update_task, graphics_task]).await;
+                parallel([frame_update_task, graphics_task]).await;
+            };
+
+            pin_mut!(frame_task);
+            self.task_executor.execute_blocking(frame_task);
+        } else {
+            let frame_task = async {
+                let graphics_task = self.graphics.frame(&frame_buffer_reader);
+
+                pin_mut!(frame_update_task);
+                pin_mut!(graphics_task);
+
+                parallel([frame_update_task, graphics_task]).await;
+            };
+
+            pin_mut!(frame_task);
+            self.task_executor.execute_blocking(frame_task);
         };
-
-        pin_mut!(frame_task);
-        self.task_executor.execute_blocking(frame_task);
     }
 }
