@@ -20,7 +20,12 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(vulkan: &VulkanInfo, swapchain: &Swapchain, shader_name: &str) -> Result<Self> {
+    pub fn new(
+        vulkan: &VulkanInfo,
+        swapchain: &Swapchain,
+        render_pass: vk::RenderPass,
+        shader_name: &str,
+    ) -> Result<Self> {
         let shader_entry = cstr!("main");
         let shader = Shader::new(vulkan, shader_name, unsafe { CStr::from_ptr(shader_entry) })?;
 
@@ -95,6 +100,7 @@ impl Pipeline {
             .depth_stencil_state(&depth_stencil_create_info)
             .color_blend_state(&color_blend_create_info)
             .layout(pipeline_layout)
+            .render_pass(render_pass)
             .extend_from(&mut pipeline_rendering_create_info)];
 
         let pipeline = unsafe {

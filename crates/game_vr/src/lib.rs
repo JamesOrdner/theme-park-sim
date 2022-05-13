@@ -75,7 +75,7 @@ impl GameVr {
             .iter()
             .find(|mode| **mode == BLEND_MODE)
             .copied()
-            .ok_or(Error::msg("opaque blend mode unavailable"))?;
+            .ok_or_else(|| Error::msg("opaque blend mode unavailable"))?;
 
         let (mut vulkan, xr_create_info) = Vulkan::new_vr(
             window,

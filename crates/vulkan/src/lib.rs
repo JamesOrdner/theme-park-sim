@@ -8,6 +8,7 @@ use frame_buffer::FrameBufferReader;
 use futures::pin_mut;
 use nalgebra_glm::{look_at_lh, perspective_lh_zo, Mat4};
 use pipeline::SceneData;
+use render_pass::RenderPass;
 use scene::Scene;
 use task_executor::task::parallel;
 use winit::{dpi::PhysicalSize, window::Window};
@@ -31,6 +32,7 @@ mod device;
 mod frame;
 mod instance;
 mod pipeline;
+mod render_pass;
 mod scene;
 mod static_mesh;
 mod swapchain;
@@ -59,6 +61,7 @@ pub struct Vulkan {
     current_frame_index: bool,
     allocator: GpuAllocator,
     pipeline: Pipeline,
+    render_pass: RenderPass,
     swapchain: Swapchain,
     vr_swapchain: Option<VrSwapchain>,
     vulkan_info: VulkanInfo,
@@ -93,7 +96,9 @@ impl Vulkan {
 
         let swapchain = Swapchain::new(&vulkan_info)?;
 
-        let pipeline = Pipeline::new(&vulkan_info, &swapchain, "default")?;
+        let render_pass = RenderPass::new(&vulkan_info, &swapchain)?;
+
+        let pipeline = Pipeline::new(&vulkan_info, &swapchain, *render_pass, "default")?;
 
         let mut allocator = GpuAllocator::new(&vulkan_info)?;
 
@@ -114,6 +119,7 @@ impl Vulkan {
             current_frame_index: false,
             allocator,
             pipeline,
+            render_pass,
             swapchain,
             vr_swapchain: None,
             vulkan_info,
@@ -158,7 +164,9 @@ impl Vulkan {
 
         let swapchain = Swapchain::new(&vulkan_info)?;
 
-        let pipeline = Pipeline::new(&vulkan_info, &swapchain, "default")?;
+        let render_pass = RenderPass::new(&vulkan_info, &swapchain)?;
+
+        let pipeline = Pipeline::new(&vulkan_info, &swapchain, *render_pass, "default")?;
 
         let mut allocator = GpuAllocator::new(&vulkan_info)?;
 
@@ -179,6 +187,7 @@ impl Vulkan {
             current_frame_index: false,
             allocator,
             pipeline,
+            render_pass,
             swapchain,
             vr_swapchain: None,
             vulkan_info,
@@ -241,62 +250,12 @@ impl Vulkan {
             .acquire_next_image(frame_info.acquire_semaphore)
             .unwrap();
 
-        let swapchain_image = self.swapchain.images[swapchain_image_index as usize];
-        let swapchain_image_view = self.swapchain.image_views[swapchain_image_index as usize];
+        // render pass begin
 
-        // transition swapchain image to color attachment
-
-        let image_memory_barriers = [vk::ImageMemoryBarrier2Builder::new()
-            .src_stage_mask(vk::PipelineStageFlags2::TOP_OF_PIPE)
-            .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
-            .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
-            .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .image(swapchain_image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            })];
-
-        let dependency_info =
-            vk::DependencyInfoBuilder::new().image_memory_barriers(&image_memory_barriers);
-
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_pipeline_barrier2(frame_info.command_buffer, &dependency_info);
-        }
+        self.render_pass
+            .begin(frame_info.command_buffer, swapchain_image_index as usize);
 
         // render
-
-        let color_attachments = [vk::RenderingAttachmentInfoBuilder::new()
-            .image_view(swapchain_image_view)
-            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .clear_value(vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 0.0],
-                },
-            })];
-
-        let rendering_info = vk::RenderingInfoBuilder::new()
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: self.swapchain.surface_extent,
-            })
-            .layer_count(1)
-            .color_attachments(&color_attachments);
-
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_begin_rendering(frame_info.command_buffer, &rendering_info);
-        }
-
-        // render static mesh instances
 
         self.pipeline.bind(frame_info.command_buffer);
 
@@ -357,37 +316,9 @@ impl Vulkan {
             }
         }
 
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_end_rendering(frame_info.command_buffer);
-        }
+        // render pass end
 
-        // transition swapchain image to present layout
-
-        let image_memory_barriers = [vk::ImageMemoryBarrier2Builder::new()
-            .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
-            .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
-            .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
-            .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-            .image(swapchain_image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            })];
-
-        let dependency_info =
-            vk::DependencyInfoBuilder::new().image_memory_barriers(&image_memory_barriers);
-
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_pipeline_barrier2(frame_info.command_buffer, &dependency_info);
-        }
+        self.render_pass.end(frame_info.command_buffer);
 
         let present_semaphore = self.frames[self.current_frame_index as usize]
             .as_mut()
@@ -402,7 +333,11 @@ impl Vulkan {
         self.current_frame_index = !self.current_frame_index;
     }
 
-    pub async fn frame_vr(&mut self, vr_frame_info: &XrFrameInfo, frame_buffer: &FrameBufferReader<'_>) {
+    pub async fn frame_vr(
+        &mut self,
+        vr_frame_info: &XrFrameInfo,
+        frame_buffer: &FrameBufferReader<'_>,
+    ) {
         unsafe {
             self.vulkan_info.device.device_wait_idle().unwrap();
         }

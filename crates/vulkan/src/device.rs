@@ -1,7 +1,7 @@
 use std::{ffi::CStr, ops::Deref, os::raw::c_char, sync::Arc};
 
 use anyhow::{Error, Result};
-use erupt::{vk, DeviceLoader, DeviceLoaderBuilder, ExtendableFrom};
+use erupt::{vk, DeviceLoader, DeviceLoaderBuilder};
 use smallvec::SmallVec;
 
 use crate::instance::Instance;
@@ -45,17 +45,9 @@ impl Device {
             })
             .collect();
 
-        let mut dynamic_rendering_features =
-            vk::PhysicalDeviceDynamicRenderingFeaturesBuilder::new().dynamic_rendering(true);
-
-        let mut synchronization2_features =
-            vk::PhysicalDeviceSynchronization2FeaturesBuilder::new().synchronization2(true);
-
         let create_info = vk::DeviceCreateInfoBuilder::new()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&required_device_extensions)
-            .extend_from(&mut dynamic_rendering_features)
-            .extend_from(&mut synchronization2_features);
+            .enabled_extension_names(&required_device_extensions);
 
         let device_loader = unsafe { DeviceLoader::new(instance, physical_device, &create_info)? };
         let device_loader = Arc::new(device_loader);
@@ -120,17 +112,9 @@ impl Device {
             })
             .collect();
 
-        let mut dynamic_rendering_features =
-            vk::PhysicalDeviceDynamicRenderingFeaturesBuilder::new().dynamic_rendering(true);
-
-        let mut synchronization2_features =
-            vk::PhysicalDeviceSynchronization2FeaturesBuilder::new().synchronization2(true);
-
         let create_info = vk::DeviceCreateInfoBuilder::new()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&required_device_extensions)
-            .extend_from(&mut dynamic_rendering_features)
-            .extend_from(&mut synchronization2_features);
+            .enabled_extension_names(&required_device_extensions);
 
         let device = create_device(&create_info);
 
