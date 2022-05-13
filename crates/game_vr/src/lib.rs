@@ -1,3 +1,5 @@
+#![cfg(not(target_vendor = "apple"))]
+
 use std::mem;
 
 use anyhow::{Error, Result};

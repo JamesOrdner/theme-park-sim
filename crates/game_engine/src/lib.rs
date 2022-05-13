@@ -6,7 +6,6 @@ use futures::pin_mut;
 use game_controller::GameController;
 use game_input::GameInput;
 use game_system::FIXED_TIMESTEP;
-use game_vr::GameVr;
 use system_interfaces::SystemData;
 use task_executor::{task::parallel, TaskExecutor};
 use winit::{
@@ -14,16 +13,18 @@ use winit::{
     window::Window,
 };
 
+#[cfg(not(target_vendor = "apple"))]
+use game_vr::GameVr;
+
+#[cfg(target_vendor = "apple")]
+use metal::Metal;
+#[cfg(not(target_vendor = "apple"))]
+use vulkan::Vulkan;
+
 use crate::{fixed_update::FixedUpdate, frame_update::FrameUpdate};
 
 mod fixed_update;
 mod frame_update;
-
-#[cfg(target_vendor = "apple")]
-use metal::Metal;
-
-#[cfg(not(target_vendor = "apple"))]
-use vulkan::Vulkan;
 
 pub struct GameEngine {
     task_executor: TaskExecutor,
@@ -192,4 +193,14 @@ impl GameEngine {
             self.task_executor.execute_blocking(frame_task);
         };
     }
+}
+
+// need a cleaner system to handle platform differences
+
+#[cfg(target_vendor = "apple")]
+struct GameVr;
+
+#[cfg(target_vendor = "apple")]
+impl GameVr {
+    async fn frame(&mut self, _: &mut Metal) {}
 }
