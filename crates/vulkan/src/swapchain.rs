@@ -182,3 +182,72 @@ impl Swapchain {
         Ok(())
     }
 }
+
+pub struct VrSwapchain {
+    device: Arc<DeviceLoader>,
+    pub surface_extent: vk::Extent2D,
+    pub image_format: vk::Format,
+    pub images: [vk::Image; 2],
+    pub image_views: [vk::ImageView; 2],
+}
+
+pub struct VrSwapchainCreateInfo<I>
+where
+    I: Iterator<Item = vk::Image>,
+{
+    pub surface_extent: vk::Extent2D,
+    pub image_format: vk::Format,
+    pub images: I,
+}
+
+impl VrSwapchain {
+    pub fn new<I>(vulkan: &VulkanInfo, create_info: &mut VrSwapchainCreateInfo<I>) -> Result<Self>
+    where
+        I: Iterator<Item = vk::Image>,
+    {
+        let images = [
+            create_info.images.next().unwrap(),
+            create_info.images.next().unwrap(),
+        ];
+
+        let image_views = images.map(|image| {
+            let image_view_subresource_range = vk::ImageSubresourceRangeBuilder::new()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .base_mip_level(0)
+                .level_count(1)
+                .base_array_layer(0)
+                .layer_count(2);
+
+            let image_view_create_info = vk::ImageViewCreateInfoBuilder::new()
+                .image(image)
+                .view_type(vk::ImageViewType::_2D_ARRAY)
+                .format(create_info.image_format)
+                .subresource_range(*image_view_subresource_range);
+
+            unsafe {
+                vulkan
+                    .device
+                    .create_image_view(&image_view_create_info, None)
+                    .expect("create_image_view")
+            }
+        });
+
+        Ok(VrSwapchain {
+            device: vulkan.device.clone_loader(),
+            surface_extent: create_info.surface_extent,
+            image_format: create_info.image_format,
+            images,
+            image_views,
+        })
+    }
+}
+
+impl Drop for VrSwapchain {
+    fn drop(&mut self) {
+        unsafe {
+            for image_view in &self.image_views {
+                self.device.destroy_image_view(*image_view, None);
+            }
+        }
+    }
+}

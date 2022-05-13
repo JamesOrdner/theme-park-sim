@@ -11,4 +11,5 @@ openxr = { version = "0.16.0", features = ["loaded"] }
 winit = "0.26.1"
 
 [target.'cfg(not(target_vendor = "apple"))'.dependencies]
+frame_buffer = { path = "../frame_buffer" }
 vulkan = { path = "../vulkan" }

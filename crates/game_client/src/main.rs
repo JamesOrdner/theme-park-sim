@@ -18,7 +18,7 @@ impl GameClient {
         env_logger::builder().filter_level(LevelFilter::Info).init();
 
         #[cfg(not(debug_assertions))]
-        env_logger::builder().filter_level(LevelFilter::Warn).init();
+        env_logger::builder().filter_level(LevelFilter::Info).init();
 
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new().build(&event_loop).unwrap();

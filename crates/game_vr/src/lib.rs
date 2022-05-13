@@ -2,6 +2,7 @@ use std::mem;
 
 use anyhow::{Error, Result};
 use erupt::vk;
+use frame_buffer::FrameBufferReader;
 use openxr as xr;
 use vulkan::Vulkan;
 use winit::window::Window;
@@ -10,6 +11,7 @@ const BLEND_MODE: xr::EnvironmentBlendMode = xr::EnvironmentBlendMode::OPAQUE;
 const VIEW_CONFIGURATION: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
 
 pub struct GameVr {
+    session_state: xr::SessionState,
     swapchain_extent: xr::Extent2Di,
     space: xr::Space,
     swapchain: xr::Swapchain<xr::Vulkan>,
@@ -17,7 +19,7 @@ pub struct GameVr {
     frame_waiter: xr::FrameWaiter,
     session: xr::Session<xr::Vulkan>,
     _system: xr::SystemId,
-    _instance: xr::Instance,
+    instance: xr::Instance,
 }
 
 impl GameVr {
@@ -73,7 +75,7 @@ impl GameVr {
             .copied()
             .ok_or(Error::msg("opaque blend mode unavailable"))?;
 
-        let (vulkan, xr_create_info) = Vulkan::new_vr(
+        let (mut vulkan, xr_create_info) = Vulkan::new_vr(
             window,
             |get_instance_proc_addr, create_info| unsafe {
                 let vk_instance = instance
@@ -146,10 +148,20 @@ impl GameVr {
             mip_count: 1,
         })?;
 
+        vulkan.create_vr_swapchain(&mut vulkan::VrSwapchainCreateInfo {
+            surface_extent: vk::Extent2D {
+                width: swapchain_extent.width as u32,
+                height: swapchain_extent.height as u32,
+            },
+            image_format: vk::Format::R8G8B8A8_SRGB,
+            images: swapchain.enumerate_images()?.into_iter().map(vk::Image),
+        })?;
+
         let space =
             session.create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)?;
 
         let vr = Self {
+            session_state: xr::SessionState::UNKNOWN,
             swapchain_extent,
             space,
             swapchain,
@@ -157,16 +169,27 @@ impl GameVr {
             frame_waiter,
             session,
             _system: system,
-            _instance: instance,
+            instance,
         };
 
         Ok((vr, vulkan))
     }
 
-    pub async fn frame(&mut self, vulkan: &mut Vulkan) {
-        self.frame_stream.begin().unwrap();
+    pub async fn frame(&mut self, vulkan: &mut Vulkan, frame_buffer: &FrameBufferReader<'_>) {
+        self.poll_events();
+
+        if self.session_state != xr::SessionState::READY
+            && self.session_state != xr::SessionState::SYNCHRONIZED
+            && self.session_state != xr::SessionState::VISIBLE
+            && self.session_state != xr::SessionState::FOCUSED
+        {
+            vulkan.frame(frame_buffer).await;
+            return;
+        }
 
         let frame_state = self.frame_waiter.wait().unwrap();
+
+        self.frame_stream.begin().unwrap();
 
         if !frame_state.should_render {
             self.frame_stream
@@ -176,6 +199,8 @@ impl GameVr {
         }
 
         let swapchain_index = self.swapchain.acquire_image().unwrap();
+
+        // start writing render commands
 
         self.swapchain.wait_image(xr::Duration::INFINITE).unwrap();
 
@@ -227,5 +252,43 @@ impl GameVr {
                     .views(&views)],
             )
             .unwrap();
+    }
+
+    fn poll_events(&mut self) {
+        let mut event_storage = xr::EventDataBuffer::new();
+        while let Some(event) = self.instance.poll_event(&mut event_storage).unwrap() {
+            use xr::Event::*;
+            match event {
+                SessionStateChanged(state_change) => {
+                    log::info!("OpenXR state changed to {:?}", state_change.state());
+                    match state_change.state() {
+                        xr::SessionState::IDLE => {
+                            assert_eq!(self.session_state, xr::SessionState::UNKNOWN)
+                        }
+                        xr::SessionState::READY => {
+                            self.session.begin(VIEW_CONFIGURATION).unwrap();
+                        }
+                        xr::SessionState::SYNCHRONIZED => {}
+                        xr::SessionState::VISIBLE => {}
+                        xr::SessionState::FOCUSED => {}
+                        xr::SessionState::STOPPING => {
+                            self.session.end().unwrap();
+                        }
+                        xr::SessionState::LOSS_PENDING => todo!(),
+                        xr::SessionState::EXITING => todo!(),
+                        _ => unreachable!(),
+                    }
+
+                    self.session_state = state_change.state();
+                }
+                InstanceLossPending(_) => {
+                    panic!("OpenXR instance lost");
+                }
+                EventsLost(events_lost) => {
+                    log::warn!("OpenXR lost {} events", events_lost.lost_event_count())
+                }
+                _ => {}
+            }
+        }
     }
 }

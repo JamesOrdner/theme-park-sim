@@ -1,6 +1,6 @@
 #![cfg(not(target_vendor = "apple"))]
 
-use std::{ffi::c_void, mem, slice};
+use std::{mem, slice};
 
 use anyhow::Result;
 use erupt::{vk, EntryLoader};
@@ -19,9 +19,11 @@ use crate::{
     frame::Frame,
     instance::Instance,
     pipeline::Pipeline,
-    swapchain::Swapchain,
+    swapchain::{Swapchain, VrSwapchain},
     transfer::Transfer,
 };
+
+pub use crate::swapchain::VrSwapchainCreateInfo;
 
 mod allocator;
 mod descriptor_set_layouts;
@@ -58,6 +60,7 @@ pub struct Vulkan {
     allocator: GpuAllocator,
     pipeline: Pipeline,
     swapchain: Swapchain,
+    vr_swapchain: Option<VrSwapchain>,
     vulkan_info: VulkanInfo,
     aspect: f32,
 }
@@ -68,6 +71,10 @@ pub struct XrCreateInfo {
     pub device: vk::Device,
     pub queue_family_index: u32,
     pub queue_index: u32,
+}
+
+pub struct XrFrameInfo {
+    pub swapchain_index: u32,
 }
 
 impl Vulkan {
@@ -108,6 +115,7 @@ impl Vulkan {
             allocator,
             pipeline,
             swapchain,
+            vr_swapchain: None,
             vulkan_info,
             aspect,
         })
@@ -172,6 +180,7 @@ impl Vulkan {
             allocator,
             pipeline,
             swapchain,
+            vr_swapchain: None,
             vulkan_info,
             aspect,
         };
@@ -205,6 +214,17 @@ impl Drop for Vulkan {
 impl Vulkan {
     pub fn window_resized(&mut self, size: PhysicalSize<u32>) {
         self.aspect = size.width as f32 / size.height as f32;
+    }
+
+    pub fn create_vr_swapchain<I>(
+        &mut self,
+        create_info: &mut VrSwapchainCreateInfo<I>,
+    ) -> Result<()>
+    where
+        I: Iterator<Item = vk::Image>,
+    {
+        self.vr_swapchain = Some(VrSwapchain::new(&self.vulkan_info, create_info)?);
+        Ok(())
     }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
@@ -377,6 +397,178 @@ impl Vulkan {
 
         self.swapchain
             .present(present_semaphore, swapchain_image_index)
+            .unwrap();
+
+        self.current_frame_index = !self.current_frame_index;
+    }
+
+    pub async fn frame_vr(&mut self, vr_frame_info: &XrFrameInfo, frame_buffer: &FrameBufferReader<'_>) {
+        unsafe {
+            self.vulkan_info.device.device_wait_idle().unwrap();
+        }
+
+        self.update_scene(frame_buffer).await;
+
+        let swapchain = self.vr_swapchain.as_ref().unwrap();
+
+        let frame_info = self.frames[self.current_frame_index as usize]
+            .as_mut()
+            .unwrap()
+            .begin()
+            .unwrap();
+
+        let swapchain_image = swapchain.images[vr_frame_info.swapchain_index as usize];
+        let swapchain_image_view = swapchain.image_views[vr_frame_info.swapchain_index as usize];
+
+        // transition swapchain image to color attachment
+
+        let image_memory_barriers = [vk::ImageMemoryBarrier2Builder::new()
+            .src_stage_mask(vk::PipelineStageFlags2::TOP_OF_PIPE)
+            .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+            .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
+            .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .image(swapchain_image)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 2,
+            })];
+
+        let dependency_info =
+            vk::DependencyInfoBuilder::new().image_memory_barriers(&image_memory_barriers);
+
+        unsafe {
+            self.vulkan_info
+                .device
+                .cmd_pipeline_barrier2(frame_info.command_buffer, &dependency_info);
+        }
+
+        // render
+
+        let color_attachments = [vk::RenderingAttachmentInfoBuilder::new()
+            .image_view(swapchain_image_view)
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            })];
+
+        let rendering_info = vk::RenderingInfoBuilder::new()
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: swapchain.surface_extent,
+            })
+            .layer_count(2)
+            .color_attachments(&color_attachments);
+
+        unsafe {
+            self.vulkan_info
+                .device
+                .cmd_begin_rendering(frame_info.command_buffer, &rendering_info);
+        }
+
+        // render static mesh instances
+
+        self.pipeline.bind(frame_info.command_buffer);
+
+        let scene_data = {
+            let mut proj_matrix = perspective_lh_zo(self.aspect, 1.0, 0.01, 50.0);
+            proj_matrix[5] *= -1.0;
+
+            let view_matrix = frame_buffer
+                .camera_info()
+                .map(|info| look_at_lh(&info.location, &info.focus, &info.up))
+                .unwrap_or_else(Mat4::identity);
+
+            SceneData {
+                proj_matrix,
+                view_matrix,
+            }
+        };
+
+        unsafe {
+            self.vulkan_info.device.cmd_push_constants(
+                frame_info.command_buffer,
+                self.pipeline.layout(),
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                mem::size_of::<SceneData>() as u32,
+                &scene_data as *const _ as *const _,
+            )
+        }
+
+        for (i, static_mesh) in self.scene.static_meshes.iter().enumerate() {
+            unsafe {
+                self.vulkan_info.device.cmd_bind_descriptor_sets(
+                    frame_info.command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline.layout(),
+                    0,
+                    &[frame_info.instance_descriptor_set],
+                    &[i as u32],
+                );
+
+                self.vulkan_info.device.cmd_bind_index_buffer(
+                    frame_info.command_buffer,
+                    static_mesh.vertex_buffer.buffer,
+                    0,
+                    vk::IndexType::UINT16,
+                );
+
+                self.vulkan_info.device.cmd_bind_vertex_buffers(
+                    frame_info.command_buffer,
+                    0,
+                    &[static_mesh.vertex_buffer.buffer],
+                    &[static_mesh.vertex_offset],
+                );
+
+                self.vulkan_info
+                    .device
+                    .cmd_draw_indexed(frame_info.command_buffer, 3, 1, 0, 0, 0);
+            }
+        }
+
+        unsafe {
+            self.vulkan_info
+                .device
+                .cmd_end_rendering(frame_info.command_buffer);
+        }
+
+        // transition swapchain image to present layout
+
+        let image_memory_barriers = [vk::ImageMemoryBarrier2Builder::new()
+            .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
+            .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+            .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
+            .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+            .image(swapchain_image)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 2,
+            })];
+
+        let dependency_info =
+            vk::DependencyInfoBuilder::new().image_memory_barriers(&image_memory_barriers);
+
+        unsafe {
+            self.vulkan_info
+                .device
+                .cmd_pipeline_barrier2(frame_info.command_buffer, &dependency_info);
+        }
+
+        let present_semaphore = self.frames[self.current_frame_index as usize]
+            .as_mut()
+            .unwrap()
+            .end_and_submit(frame_info)
             .unwrap();
 
         self.current_frame_index = !self.current_frame_index;

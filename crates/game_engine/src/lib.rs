@@ -168,7 +168,7 @@ impl GameEngine {
 
         if let Some(vr) = &mut self.vr {
             let frame_task = async {
-                let graphics_task = vr.frame(&mut self.graphics);
+                let graphics_task = vr.frame(&mut self.graphics, &frame_buffer_reader);
 
                 pin_mut!(frame_update_task);
                 pin_mut!(graphics_task);
