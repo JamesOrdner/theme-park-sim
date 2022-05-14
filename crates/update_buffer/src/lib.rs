@@ -71,7 +71,7 @@ pub struct UpdateBufferRef<'a> {
 }
 
 impl<'a> UpdateBufferRef<'a> {
-    #[inline(always)]
+    #[inline]
     pub fn locations(&self) -> impl Iterator<Item = &EntityData<Vec3>> {
         let index = self.read_index();
         self.update_buffers
@@ -79,7 +79,7 @@ impl<'a> UpdateBufferRef<'a> {
             .flat_map(move |buffers| &buffers[index].locations)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn push_location(&self, entity_id: EntityId, location: Vec3) {
         let index = self.write_index();
 

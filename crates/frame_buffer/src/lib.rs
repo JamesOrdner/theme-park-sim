@@ -32,12 +32,17 @@ pub struct FrameBufferReader<'a> {
 }
 
 impl FrameBufferReader<'_> {
-    #[inline(always)]
+    #[inline]
     pub fn spawned_static_meshes(&self) -> impl Iterator<Item = &SpawnedStaticMesh> {
         self.frame_buffer_manager.spawned_static_meshes.iter()
     }
 
-    #[inline(always)]
+    #[inline]
+    pub fn despawned(&self) -> impl Iterator<Item = &EntityId> {
+        self.frame_buffer_manager.despawned.iter()
+    }
+
+    #[inline]
     pub fn camera_info(&self) -> Option<CameraInfo> {
         let swap_index = self.frame_buffer_manager.read_index();
         self.frame_buffer_manager
@@ -46,13 +51,14 @@ impl FrameBufferReader<'_> {
             .find_map(|buffers| buffers[swap_index].camera_info)
     }
 
-    #[inline(always)]
-    pub fn locations(&self) -> impl Iterator<Item = &Vec3> {
+    #[inline]
+    pub fn locations(&self) -> impl Iterator<Item = (EntityId, &Vec3)> {
         let swap_index = self.frame_buffer_manager.read_index();
         self.frame_buffer_manager
             .event_buffers
             .iter()
             .flat_map(move |buffers| &buffers[swap_index].locations)
+            .map(|entity_data| (entity_data.entity_id, &entity_data.data))
     }
 }
 
@@ -62,6 +68,7 @@ pub struct FrameBufferWriter<'a> {
 }
 
 impl FrameBufferWriter<'_> {
+    #[inline]
     pub fn set_camera_info(&self, info: CameraInfo) {
         EVENT_BUFFER.with(|queue| unsafe {
             queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].camera_info =
@@ -69,11 +76,12 @@ impl FrameBufferWriter<'_> {
         });
     }
 
-    pub fn push_location(&self, location: Vec3) {
+    #[inline]
+    pub fn push_location(&self, entity_id: EntityId, location: Vec3) {
         EVENT_BUFFER.with(|queue| unsafe {
             queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize]
                 .locations
-                .push(location);
+                .push(EntityData::new(entity_id, location));
         });
     }
 }
@@ -83,10 +91,16 @@ pub struct SyncFrameBufferDelegate<'a> {
 }
 
 impl SyncFrameBufferDelegate<'_> {
+    #[inline]
     pub fn spawn_static_mesh(&mut self, static_mesh: SpawnedStaticMesh) {
         self.frame_buffer_manager
             .spawned_static_meshes
             .push(static_mesh);
+    }
+
+    #[inline]
+    pub fn despawn(&mut self, entity_id: EntityId) {
+        self.frame_buffer_manager.despawned.push(entity_id);
     }
 }
 
@@ -106,7 +120,19 @@ pub struct CameraInfo {
 #[derive(Clone, Default)]
 struct Data {
     camera_info: Option<CameraInfo>,
-    locations: Vec<Vec3>,
+    locations: Vec<EntityData<Vec3>>,
+}
+
+#[derive(Clone, Copy)]
+pub struct EntityData<T> {
+    pub entity_id: EntityId,
+    pub data: T,
+}
+
+impl<T> EntityData<T> {
+    fn new(entity_id: EntityId, data: T) -> Self {
+        Self { entity_id, data }
+    }
 }
 
 impl Data {
@@ -119,6 +145,7 @@ impl Data {
 pub struct FrameBufferManager {
     event_buffers: Vec<[Data; 2]>,
     spawned_static_meshes: Vec<SpawnedStaticMesh>,
+    despawned: Vec<EntityId>,
     swap_index: bool,
 }
 
@@ -127,6 +154,7 @@ impl FrameBufferManager {
         Self {
             event_buffers: vec![[Data::default(), Data::default()]; thread_count.get()],
             spawned_static_meshes: Vec::new(),
+            despawned: Vec::new(),
             swap_index: false,
         }
     }
@@ -155,6 +183,7 @@ impl FrameBufferManager {
         }
 
         self.spawned_static_meshes.clear();
+        self.despawned.clear();
     }
 
     fn read_index(&self) -> usize {

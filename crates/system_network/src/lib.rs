@@ -8,13 +8,8 @@ pub enum Role {
     Server,
 }
 
+#[derive(Default)]
 pub struct FixedData {}
-
-impl Default for FixedData {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 impl FixedData {
     pub fn set_role(&mut self, _role: Role) {}

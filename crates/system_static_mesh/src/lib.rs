@@ -1,8 +1,8 @@
-use std::{iter::zip, mem};
+use std::mem;
 
 use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::FrameBufferWriter;
-use game_entity::EntityId;
+use game_entity::EntityMap;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
 use update_buffer::UpdateBufferRef;
@@ -13,14 +13,14 @@ pub fn shared_data() -> SharedData {
 
 pub struct FrameData {
     shared_data: SharedData,
-    modified_entities: Vec<Vec3>,
+    modified_entities: EntityMap<Vec3>,
 }
 
 impl FrameData {
     pub fn new(shared_data: SharedData) -> Self {
         Self {
             shared_data,
-            modified_entities: Vec::new(),
+            modified_entities: EntityMap::new(),
         }
     }
 
@@ -29,27 +29,25 @@ impl FrameData {
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &FrameBufferWriter<'_>,
     ) {
-        for spawn_id in event_delegate
-            .game_events()
-            .filter_map(|event| match event {
-                GameEvent::Spawn(id) => Some(id),
-                _ => None,
-            })
-        {
-            println!("spawning {}", spawn_id.get());
-        }
-
         // update system data
 
         let mut data = self.shared_data.write_single().await;
 
-        // temp until entity/spawning system is in place
-        if data.locations.is_empty() {
-            data.locations.push(Vec3::zeros());
+        for game_event in event_delegate.game_events() {
+            match game_event {
+                GameEvent::Spawn(entity_id) => {
+                    data.locations.insert(*entity_id, Vec3::zeros());
+                }
+                GameEvent::Despawn(entity_id) => {
+                    data.locations.remove(*entity_id);
+                }
+            }
         }
 
-        for (loc, modified) in zip(&mut data.locations, &self.modified_entities) {
-            *loc = *modified;
+        for (modified_entity_id, modified_location) in &self.modified_entities {
+            if let Some(location) = data.locations.get_mut(*modified_entity_id) {
+                *location = *modified_location;
+            }
         }
 
         drop(data);
@@ -57,8 +55,8 @@ impl FrameData {
         // update frame buffer
 
         let data = self.shared_data.read_single().await;
-        for location in &data.locations {
-            frame_buffer.push_location(*location);
+        for (entity_id, location) in &data.locations {
+            frame_buffer.push_location(*entity_id, *location);
         }
 
         // notify other systems of changes
@@ -69,7 +67,7 @@ impl FrameData {
 
 #[derive(Default)]
 pub struct FixedData {
-    modified_entities: Vec<Vec3>,
+    modified_entities: EntityMap<Vec3>,
 }
 
 impl FixedData {
@@ -84,13 +82,18 @@ impl FixedData {
     pub async fn update(&mut self, update_buffer: UpdateBufferRef<'_>) {
         // notify other of system changes
 
-        for modified in self.modified_entities.drain(..) {
-            update_buffer.push_location(EntityId::new(1), modified);
+        for (entity_id, location) in &self.modified_entities {
+            update_buffer.push_location(*entity_id, *location);
         }
+
+        self.modified_entities.clear();
 
         // update system from other changes
 
-        self.modified_entities
-            .extend(update_buffer.locations().map(|location| location.data));
+        self.modified_entities.extend(
+            update_buffer
+                .locations()
+                .map(|location| (location.entity_id, location.data)),
+        );
     }
 }

@@ -34,23 +34,23 @@ pub struct SyncEventDelegate<'a> {
 }
 
 impl SyncEventDelegate<'_> {
-    #[inline(always)]
+    #[inline]
     pub fn push_game_event(&mut self, event: GameEvent) {
         self.event_manager.game_event_buffer.push(event);
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn push_input_event(&mut self, event: InputEvent) {
         self.event_manager.input_event_buffer.push(event);
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
     }
 
     /// Frame events which occurred in the previous frame
-    #[inline(always)]
+    #[inline]
     pub fn frame_events(&self) -> impl Iterator<Item = &FrameEvent> {
         let swap_index = self.event_manager.read_index();
         self.event_manager
@@ -65,7 +65,7 @@ pub struct AsyncEventDelegate<'a> {
 }
 
 impl AsyncEventDelegate<'_> {
-    #[inline(always)]
+    #[inline]
     pub fn push_frame_event(&self, event: FrameEvent) {
         let swap_index = self.event_manager.write_index();
 
@@ -77,18 +77,18 @@ impl AsyncEventDelegate<'_> {
         });
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn game_events(&self) -> impl Iterator<Item = &GameEvent> {
         self.event_manager.game_event_buffer.iter()
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
     }
 
     /// Frame events which occurred in the previous frame
-    #[inline(always)]
+    #[inline]
     pub fn frame_events(&self) -> impl Iterator<Item = &FrameEvent> {
         let swap_index = self.event_manager.read_index();
         self.event_manager
