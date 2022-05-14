@@ -108,7 +108,7 @@ pub struct EventManager {
 impl EventManager {
     pub fn new(thread_count: NonZeroUsize) -> Self {
         Self {
-            event_buffers: vec![[Vec::new(), Vec::new()]; thread_count.get()],
+            event_buffers: vec![Default::default(); thread_count.get()],
             game_event_buffer: Vec::new(),
             input_event_buffer: Vec::new(),
             swap_index: false,
@@ -116,8 +116,7 @@ impl EventManager {
     }
 
     pub fn assign_thread_event_buffer(&self, thread_index: usize) {
-        FRAME_EVENT_BUFFER
-            .with(|queue| queue.set(self.event_buffers[thread_index].as_ptr() as *mut _));
+        FRAME_EVENT_BUFFER.with(|queue| queue.set(self.event_buffers[thread_index].as_ptr() as _));
     }
 
     pub fn sync_delegate(&mut self) -> SyncEventDelegate {

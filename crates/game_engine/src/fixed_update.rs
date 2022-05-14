@@ -1,5 +1,3 @@
-use std::num::NonZeroUsize;
-
 use futures::pin_mut;
 use task_executor::{task::parallel, FixedTaskHandle, TaskExecutor};
 use update_buffer::UpdateBuffer;
@@ -12,9 +10,9 @@ pub struct FixedUpdate {
 }
 
 impl FixedUpdate {
-    pub fn new(thread_count: NonZeroUsize) -> Self {
+    pub fn new(update_buffer: UpdateBuffer) -> Self {
         Self {
-            systems: Some(Box::new(FixedUpdateSystems::new(thread_count))),
+            systems: Some(Box::new(FixedUpdateSystems::new(update_buffer))),
             task_handle: None,
         }
     }
@@ -28,15 +26,15 @@ impl FixedUpdate {
     pub async fn swap(&mut self, frame_systems: &mut FrameUpdate) {
         let fixed_systems = self.systems.as_mut().unwrap();
 
-        let audio_task = fixed_systems.audio.swap(&mut frame_systems.audio);
-        let static_mesh_task = fixed_systems
+        let audio = fixed_systems.audio.swap(&mut frame_systems.audio);
+        let static_mesh = fixed_systems
             .static_mesh
             .swap(&mut frame_systems.static_mesh);
 
-        pin_mut!(audio_task);
-        pin_mut!(static_mesh_task);
+        pin_mut!(audio);
+        pin_mut!(static_mesh);
 
-        parallel([audio_task, static_mesh_task]).await;
+        parallel([audio, static_mesh]).await;
     }
 
     pub fn execute(&mut self, task_executor: &mut TaskExecutor) {
@@ -48,13 +46,15 @@ impl FixedUpdate {
             let update_buffer = fixed_systems.update_buffer.borrow();
 
             {
-                let audio_task = fixed_systems.audio.update();
-                let static_mesh_task = fixed_systems.static_mesh.update(update_buffer);
+                let audio = fixed_systems.audio.update();
+                let network = fixed_systems.network.update(update_buffer);
+                let static_mesh = fixed_systems.static_mesh.update(update_buffer);
 
-                pin_mut!(audio_task);
-                pin_mut!(static_mesh_task);
+                pin_mut!(audio);
+                pin_mut!(network);
+                pin_mut!(static_mesh);
 
-                parallel([audio_task, static_mesh_task]).await;
+                parallel([audio, network, static_mesh]).await;
             }
 
             fixed_systems
@@ -67,14 +67,16 @@ impl FixedUpdate {
 struct FixedUpdateSystems {
     update_buffer: UpdateBuffer,
     audio: system_audio::FixedData,
+    network: system_network::FixedData,
     static_mesh: system_static_mesh::FixedData,
 }
 
 impl FixedUpdateSystems {
-    fn new(thread_count: NonZeroUsize) -> Self {
+    fn new(update_buffer: UpdateBuffer) -> Self {
         Self {
-            update_buffer: UpdateBuffer::new(thread_count),
+            update_buffer,
             audio: Default::default(),
+            network: Default::default(),
             static_mesh: Default::default(),
         }
     }

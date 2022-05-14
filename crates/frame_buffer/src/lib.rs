@@ -32,10 +32,12 @@ pub struct FrameBufferReader<'a> {
 }
 
 impl FrameBufferReader<'_> {
+    #[inline(always)]
     pub fn spawned_static_meshes(&self) -> impl Iterator<Item = &SpawnedStaticMesh> {
         self.frame_buffer_manager.spawned_static_meshes.iter()
     }
 
+    #[inline(always)]
     pub fn camera_info(&self) -> Option<CameraInfo> {
         let swap_index = self.frame_buffer_manager.read_index();
         self.frame_buffer_manager
@@ -44,16 +46,13 @@ impl FrameBufferReader<'_> {
             .find_map(|buffers| buffers[swap_index].camera_info)
     }
 
-    pub fn locations<F>(&self, f: F)
-    where
-        F: FnMut(&Vec3),
-    {
+    #[inline(always)]
+    pub fn locations(&self) -> impl Iterator<Item = &Vec3> {
         let swap_index = self.frame_buffer_manager.read_index();
         self.frame_buffer_manager
             .event_buffers
             .iter()
-            .flat_map(|buffers| &buffers[swap_index].locations)
-            .for_each(f)
+            .flat_map(move |buffers| &buffers[swap_index].locations)
     }
 }
 

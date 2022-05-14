@@ -87,7 +87,7 @@ impl<T0, T1, const T1_LEN: usize> SharedData<T0, T1, T1_LEN> {
         self.inner.single_data.read().await
     }
 
-    pub async fn write_single(&self) -> RwLockWriteGuard<'_, T0> {
+    pub async fn write_single(&mut self) -> RwLockWriteGuard<'_, T0> {
         self.inner.single_data.write().await
     }
 
@@ -95,7 +95,7 @@ impl<T0, T1, const T1_LEN: usize> SharedData<T0, T1, T1_LEN> {
         self.inner.multiple_data[offset].read().await
     }
 
-    pub async fn write_multiple(&self, offset: usize) -> RwLockWriteGuard<'_, T1> {
+    pub async fn write_multiple(&mut self, offset: usize) -> RwLockWriteGuard<'_, T1> {
         self.inner.multiple_data[offset].write().await
     }
 }

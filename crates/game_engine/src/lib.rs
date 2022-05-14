@@ -8,6 +8,7 @@ use game_input::GameInput;
 use game_system::FIXED_TIMESTEP;
 use system_interfaces::SystemData;
 use task_executor::{task::parallel, TaskExecutor};
+use update_buffer::UpdateBuffer;
 use winit::{
     event::{DeviceEvent, WindowEvent},
     window::Window,
@@ -47,15 +48,16 @@ impl GameEngine {
         let thread_count = TaskExecutor::available_parallelism();
 
         let event_manager = EventManager::new(thread_count);
-
+        let update_buffer = UpdateBuffer::new(thread_count);
         let frame_buffer_manager = FrameBufferManager::new(thread_count);
-
-        let input = GameInput::new(window.inner_size());
 
         let task_executor = TaskExecutor::new(thread_count, &|thread_index| {
             event_manager.assign_thread_event_buffer(thread_index);
+            update_buffer.assign_thread_event_buffer(thread_index);
             frame_buffer_manager.assign_thread_frame_buffer(thread_index);
         });
+
+        let input = GameInput::new(window.inner_size());
 
         #[cfg(target_vendor = "apple")]
         let graphics = Metal::new(window).unwrap();
@@ -69,7 +71,7 @@ impl GameEngine {
             task_executor,
             event_manager,
             frame_update: FrameUpdate::new(&system_data),
-            fixed_update: FixedUpdate::new(thread_count),
+            fixed_update: FixedUpdate::new(update_buffer),
             frame_buffer_manager,
             game_controller: GameController::default(),
             input,
@@ -117,6 +119,7 @@ impl GameEngine {
         while now.duration_since(self.last_fixed_update_instant) >= FIXED_TIMESTEP {
             self.last_fixed_update_instant += FIXED_TIMESTEP;
 
+            // ensure previous update is complete
             {
                 let await_task = self.fixed_update.await_prev_update();
                 pin_mut!(await_task);

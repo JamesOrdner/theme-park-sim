@@ -1,6 +1,6 @@
 #![cfg(target_vendor = "apple")]
 
-use std::{collections::HashMap, mem, slice};
+use std::{collections::HashMap, iter::zip, mem, slice};
 
 use anyhow::{Context, Error, Result};
 use cocoa::{appkit::NSView, base::id as cocoa_id};
@@ -86,6 +86,10 @@ impl Metal {
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
         for static_mesh in frame_buffer.spawned_static_meshes() {
             self.spawn_static_mesh(static_mesh);
+        }
+
+        for (mesh, new_location) in zip(self.static_meshes.values_mut(), frame_buffer.locations()) {
+            mesh.location = *new_location;
         }
 
         struct ProjView {

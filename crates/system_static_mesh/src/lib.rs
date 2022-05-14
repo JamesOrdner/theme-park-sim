@@ -1,7 +1,8 @@
-use std::mem;
+use std::{iter::zip, mem};
 
 use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::FrameBufferWriter;
+use game_entity::EntityId;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
 use update_buffer::UpdateBufferRef;
@@ -38,16 +39,29 @@ impl FrameData {
             println!("spawning {}", spawn_id.get());
         }
 
-        if let Some(entity) = self.modified_entities.first() {
-            frame_buffer.push_location(*entity);
+        // update system data
 
-            let mut data = self.shared_data.write_single().await;
-            if let Some(location) = data.locations.first_mut() {
-                *location = *entity;
-            } else {
-                data.locations.push(*entity);
-            }
+        let mut data = self.shared_data.write_single().await;
+
+        // temp until entity/spawning system is in place
+        if data.locations.is_empty() {
+            data.locations.push(Vec3::zeros());
         }
+
+        for (loc, modified) in zip(&mut data.locations, &self.modified_entities) {
+            *loc = *modified;
+        }
+
+        drop(data);
+
+        // update frame buffer
+
+        let data = self.shared_data.read_single().await;
+        for location in &data.locations {
+            frame_buffer.push_location(*location);
+        }
+
+        // notify other systems of changes
 
         self.modified_entities.clear();
     }
@@ -55,7 +69,6 @@ impl FrameData {
 
 #[derive(Default)]
 pub struct FixedData {
-    location: Vec3,
     modified_entities: Vec<Vec3>,
 }
 
@@ -66,19 +79,18 @@ impl FixedData {
             &mut self.modified_entities,
             &mut frame_data.modified_entities,
         );
-
-        self.modified_entities.clear();
     }
 
-    pub async fn update(&mut self, _update_buffer: UpdateBufferRef<'_>) {
-        self.location.x += 1.0;
-        self.location.y += 1.0;
-        self.location.z += 1.0;
+    pub async fn update(&mut self, update_buffer: UpdateBufferRef<'_>) {
+        // notify other of system changes
 
-        if let Some(entity) = self.modified_entities.first_mut() {
-            *entity = self.location;
-        } else {
-            self.modified_entities.push(self.location);
+        for modified in self.modified_entities.drain(..) {
+            update_buffer.push_location(EntityId::new(1), modified);
         }
+
+        // update system from other changes
+
+        self.modified_entities
+            .extend(update_buffer.locations().map(|location| location.data));
     }
 }
