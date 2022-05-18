@@ -13,12 +13,14 @@ pub struct AsyncFrameBufferDelegate<'a> {
 }
 
 impl<'a> AsyncFrameBufferDelegate<'a> {
+    #[inline]
     pub fn reader(&self) -> FrameBufferReader {
         FrameBufferReader {
             frame_buffer_manager: self.frame_buffer_manager,
         }
     }
 
+    #[inline]
     pub fn writer(&self) -> FrameBufferWriter {
         FrameBufferWriter {
             swap_index: self.frame_buffer_manager.swap_index,

@@ -1,7 +1,7 @@
 use std::f32::consts::FRAC_PI_2;
 
-use event::{AsyncEventDelegate, FrameEvent, InputEvent};
-use frame_buffer::{CameraInfo, FrameBufferWriter};
+use event::{AsyncEventDelegate, InputEvent};
+use frame_buffer::{AsyncFrameBufferDelegate, CameraInfo};
 use nalgebra_glm::{rotate_vec3, vec3, Vec3};
 use system_interfaces::static_mesh::Interface as StaticMeshInterface;
 
@@ -42,7 +42,7 @@ impl FrameData {
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
-        frame_buffer: &FrameBufferWriter<'_>,
+        frame_buffer: &AsyncFrameBufferDelegate<'_>,
         delta_time: f32,
     ) {
         for input_event in event_delegate.input_events() {
@@ -93,7 +93,6 @@ impl FrameData {
         self.origin_vel *= MOVE_DAMPING_FACTOR.powf(delta_time);
 
         let location = self.origin + location;
-
         let orientation = (self.origin - location).normalize();
 
         // faux ensure camera isn't colliding
@@ -101,15 +100,12 @@ impl FrameData {
             .raycast(&self.origin, &-orientation)
             .await;
 
-        event_delegate.push_frame_event(FrameEvent::CameraLocation(location));
-        event_delegate.push_frame_event(FrameEvent::CameraOrientation(orientation));
-
         let camera_info = CameraInfo {
             focus: self.origin,
             location,
             up: vec3(0.0, 1.0, 0.0),
         };
 
-        frame_buffer.set_camera_info(camera_info);
+        frame_buffer.writer().set_camera_info(camera_info);
     }
 }

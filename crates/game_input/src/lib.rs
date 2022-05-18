@@ -71,6 +71,7 @@ pub struct GameInput {
     cursor_position: InputState<Vec2>,
     left_mouse_button: InputState<bool>,
     camera_movement: Vec2,
+    camera_rotating: bool,
     camera_rotation: Vec2,
     camera_zoom: f32,
 }
@@ -82,6 +83,7 @@ impl GameInput {
             cursor_position: Default::default(),
             left_mouse_button: Default::default(),
             camera_movement: Default::default(),
+            camera_rotating: false,
             camera_rotation: Default::default(),
             camera_zoom: Default::default(),
         }
@@ -89,8 +91,10 @@ impl GameInput {
 
     pub fn handle_raw_input(&mut self, event: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
-            self.camera_rotation.x += delta.0 as f32;
-            self.camera_rotation.y += delta.1 as f32;
+            if self.camera_rotating {
+                self.camera_rotation.x += delta.0 as f32;
+                self.camera_rotation.y += delta.1 as f32;
+            }
         }
     }
 
@@ -105,16 +109,19 @@ impl GameInput {
                 if let Some(keycode) = input.virtual_keycode {
                     match keycode {
                         VirtualKeyCode::W => {
-                            self.camera_movement.y = if pressed { 1.0 } else { 0.0 }
+                            self.camera_movement.y = if pressed { 1.0 } else { 0.0 };
                         }
                         VirtualKeyCode::A => {
-                            self.camera_movement.x = if pressed { -1.0 } else { 0.0 }
+                            self.camera_movement.x = if pressed { -1.0 } else { 0.0 };
                         }
                         VirtualKeyCode::S => {
-                            self.camera_movement.y = if pressed { -1.0 } else { 0.0 }
+                            self.camera_movement.y = if pressed { -1.0 } else { 0.0 };
                         }
                         VirtualKeyCode::D => {
-                            self.camera_movement.x = if pressed { 1.0 } else { 0.0 }
+                            self.camera_movement.x = if pressed { 1.0 } else { 0.0 };
+                        }
+                        VirtualKeyCode::R => {
+                            self.camera_rotating = pressed;
                         }
                         _ => {}
                     }

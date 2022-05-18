@@ -1,12 +1,10 @@
-use std::{cell::Cell, num::NonZeroUsize, ptr};
+use std::{cell::Cell, num::NonZeroUsize, ptr::null_mut};
 
 use game_entity::EntityId;
 use nalgebra_glm::{Vec2, Vec3};
 
 #[derive(Clone, Copy)]
 pub enum FrameEvent {
-    CameraLocation(Vec3),
-    CameraOrientation(Vec3),
     Location(EntityId),
 }
 
@@ -14,6 +12,7 @@ pub enum FrameEvent {
 pub enum GameEvent {
     Spawn(EntityId),
     Despawn(EntityId),
+    StaticMeshLocation(EntityId, Vec3),
 }
 
 #[derive(Clone, Copy)]
@@ -26,7 +25,7 @@ pub enum InputEvent {
 }
 
 thread_local! {
-    static FRAME_EVENT_BUFFER: Cell<*mut [Vec<FrameEvent>; 2]> = Cell::new(ptr::null_mut())
+    static FRAME_EVENT_BUFFER: Cell<*mut [Vec<FrameEvent>; 2]> = Cell::new(null_mut())
 }
 
 pub struct SyncEventDelegate<'a> {

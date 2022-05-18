@@ -1,5 +1,5 @@
 use event::AsyncEventDelegate;
-use frame_buffer::FrameBufferWriter;
+use frame_buffer::AsyncFrameBufferDelegate;
 use futures::pin_mut;
 use system_interfaces::SystemData;
 use task_executor::task::parallel;
@@ -31,10 +31,10 @@ impl FrameUpdate {
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
-        frame_buffer: &FrameBufferWriter<'_>,
+        frame_buffer: &AsyncFrameBufferDelegate<'_>,
         delta_time: f32,
     ) {
-        let audio = self.audio.update(event_delegate);
+        let audio = self.audio.update(frame_buffer);
         let camera = self.camera.update(event_delegate, frame_buffer, delta_time);
         let navigation = self.navigation.update(event_delegate);
         let static_mesh = self.static_mesh.update(event_delegate, frame_buffer);

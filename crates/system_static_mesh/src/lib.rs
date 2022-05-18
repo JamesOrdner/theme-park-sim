@@ -1,7 +1,7 @@
 use std::mem;
 
 use event::{AsyncEventDelegate, GameEvent};
-use frame_buffer::FrameBufferWriter;
+use frame_buffer::AsyncFrameBufferDelegate;
 use game_entity::EntityMap;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
@@ -27,7 +27,7 @@ impl FrameData {
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
-        frame_buffer: &FrameBufferWriter<'_>,
+        frame_buffer: &AsyncFrameBufferDelegate<'_>,
     ) {
         // update system data
 
@@ -40,6 +40,9 @@ impl FrameData {
                 }
                 GameEvent::Despawn(entity_id) => {
                     data.locations.remove(*entity_id);
+                }
+                GameEvent::StaticMeshLocation(entity_id, location) => {
+                    data.locations[*entity_id] = *location;
                 }
             }
         }
@@ -56,7 +59,7 @@ impl FrameData {
 
         let data = self.shared_data.read_single().await;
         for (entity_id, location) in &data.locations {
-            frame_buffer.push_location(*entity_id, *location);
+            frame_buffer.writer().push_location(*entity_id, *location);
         }
 
         // notify other systems of changes

@@ -4,6 +4,8 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+nalgebra-glm = "0.16.0"
+
 event = { path = "../event" }
 frame_buffer = { path = "../frame_buffer" }
 game_entity = { path = "../game_entity" }
