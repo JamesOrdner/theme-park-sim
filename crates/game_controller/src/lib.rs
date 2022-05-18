@@ -1,6 +1,7 @@
 use event::{GameEvent, InputEvent, SyncEventDelegate};
 use frame_buffer::{SpawnedStaticMesh, SyncFrameBufferDelegate};
 use game_entity::EntityId;
+use game_input::GameInputInterface;
 use game_resources::ResourceManager;
 use nalgebra_glm::Vec3;
 
@@ -19,6 +20,7 @@ impl GameController {
         &mut self,
         event_delegate: &mut SyncEventDelegate,
         frame_buffer: &mut SyncFrameBufferDelegate,
+        input: GameInputInterface,
     ) {
         // temp
         let entity_id = EntityId::new(1);
@@ -45,26 +47,13 @@ impl GameController {
 
         // object placement
 
-        let placement_location = event_delegate
-            .input_events()
-            .find_map(|event| match event {
-                InputEvent::CursorMoved(val) => Some(val),
-                _ => None,
-            })
-            .and_then(|cursor_position| {
-                if self.world.contains(entity_id) {
-                    // perform raycast
-                    Some(Vec3::from([
-                        cursor_position.x * 0.01,
-                        0.0,
-                        cursor_position.y * 0.01,
-                    ]))
-                } else {
-                    None
-                }
-            });
-
-        if let Some(location) = placement_location {
+        if self.world.contains(entity_id)
+            && event_delegate
+                .input_events()
+                .any(|event| matches!(event, InputEvent::CursorMoved(_)))
+        {
+            let cursor_position = input.cursor_position_ndc();
+            let location = Vec3::from([cursor_position.x, 0.0, -cursor_position.y]);
             event_delegate.push_game_event(GameEvent::StaticMeshLocation(entity_id, location));
         }
     }

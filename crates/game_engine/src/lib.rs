@@ -142,8 +142,12 @@ impl GameEngine {
         let mut frame_buffer = self.frame_buffer_manager.sync_delegate();
 
         self.input.update(&mut event_delegate);
-        self.game_controller
-            .update(&mut event_delegate, &mut frame_buffer);
+
+        self.game_controller.update(
+            &mut event_delegate,
+            &mut frame_buffer,
+            self.input.interface(),
+        );
     }
 
     fn update_and_render_frame(&mut self) {

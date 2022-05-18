@@ -9,17 +9,23 @@ use winit::{
     },
 };
 
+#[derive(Clone, Copy)]
 pub struct GameInputInterface<'a> {
-    input: &'a GameInput,
+    inner: &'a GameInput,
 }
 
 impl<'a> GameInputInterface<'a> {
-    pub fn new(input: &'a GameInput) -> Self {
-        Self { input }
+    #[inline]
+    pub fn cursor_position(&self) -> &Vec2 {
+        &*self.inner.cursor_position
     }
 
-    pub fn cursor_position(&self) -> &Vec2 {
-        &*self.input.cursor_position
+    #[inline]
+    pub fn cursor_position_ndc(&self) -> Vec2 {
+        Vec2::from([
+            self.inner.cursor_position.x * 2.0 / self.inner.window_size.x - 1.0,
+            self.inner.cursor_position.y * 2.0 / self.inner.window_size.y - 1.0,
+        ])
     }
 }
 
@@ -87,6 +93,10 @@ impl GameInput {
             camera_rotation: Default::default(),
             camera_zoom: Default::default(),
         }
+    }
+
+    pub fn interface(&self) -> GameInputInterface {
+        GameInputInterface { inner: self }
     }
 
     pub fn handle_raw_input(&mut self, event: DeviceEvent) {
