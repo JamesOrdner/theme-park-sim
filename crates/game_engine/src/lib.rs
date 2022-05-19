@@ -57,6 +57,11 @@ impl GameEngine {
             frame_buffer_manager.assign_thread_frame_buffer(thread_index);
         });
 
+        let system_data = system_data();
+        let frame_update = FrameUpdate::new(&system_data, window);
+        let fixed_update = FixedUpdate::new(update_buffer);
+        let game_controller = GameController::new(system_data.physics.into());
+
         let input = GameInput::new(window.inner_size());
 
         #[cfg(target_vendor = "apple")]
@@ -65,15 +70,13 @@ impl GameEngine {
         #[cfg(not(target_vendor = "apple"))]
         let graphics = Vulkan::new(window).unwrap();
 
-        let system_data = system_data();
-
         Self {
             task_executor,
             event_manager,
-            frame_update: FrameUpdate::new(&system_data),
-            fixed_update: FixedUpdate::new(update_buffer),
+            frame_update,
+            fixed_update,
             frame_buffer_manager,
-            game_controller: GameController::default(),
+            game_controller,
             input,
             last_fixed_update_instant: Instant::now(),
             last_frame_update_instant: Instant::now(),
@@ -85,6 +88,7 @@ impl GameEngine {
 fn system_data() -> SystemData {
     SystemData {
         navigation: system_navigation::shared_data(),
+        physics: system_physics::shared_data(),
         static_mesh: system_static_mesh::shared_data(),
     }
 }
@@ -96,6 +100,9 @@ impl GameEngine {
 
     pub fn handle_window_event(&mut self, event: WindowEvent) {
         if let WindowEvent::Resized(size) = event {
+            self.frame_update
+                .camera
+                .window_resized(size.width, size.height);
             self.graphics.window_resized(size);
         }
 
@@ -103,10 +110,20 @@ impl GameEngine {
     }
 
     pub fn frame(&mut self) {
+        let now = Instant::now();
+        let delta_time = now
+            .duration_since(self.last_frame_update_instant)
+            .as_secs_f32();
+        self.last_frame_update_instant = now;
+
         self.event_manager.swap();
         self.frame_buffer_manager.swap();
 
         self.update_fixed();
+
+        self.input.update(&mut self.event_manager.sync_delegate());
+
+        self.update_sync_systems(delta_time);
 
         self.update_game_state();
 
@@ -137,16 +154,23 @@ impl GameEngine {
         }
     }
 
+    fn update_sync_systems(&mut self, delta_time: f32) {
+        let event_delegate = self.event_manager.sync_delegate();
+        let mut frame_buffer_delegate = self.frame_buffer_manager.sync_delegate();
+
+        self.frame_update
+            .update_sync(&event_delegate, &mut frame_buffer_delegate, delta_time);
+    }
+
     fn update_game_state(&mut self) {
         let mut event_delegate = self.event_manager.sync_delegate();
         let mut frame_buffer = self.frame_buffer_manager.sync_delegate();
-
-        self.input.update(&mut event_delegate);
 
         self.game_controller.update(
             &mut event_delegate,
             &mut frame_buffer,
             self.input.interface(),
+            self.frame_update.camera.interface(),
         );
     }
 
@@ -155,16 +179,10 @@ impl GameEngine {
         let frame_buffer_reader = frame_buffer_delegate.reader();
         let event_delegate = self.event_manager.async_delegate();
 
-        let now = Instant::now();
-        let delta_time = now
-            .duration_since(self.last_frame_update_instant)
-            .as_secs_f32();
-        self.last_frame_update_instant = now;
-
         let frame_task = async {
-            let frame_update_task =
-                self.frame_update
-                    .update(&event_delegate, &frame_buffer_delegate, delta_time);
+            let frame_update_task = self
+                .frame_update
+                .update_async(&event_delegate, &frame_buffer_delegate);
 
             let graphics_task = self.graphics.frame(&frame_buffer_reader);
 

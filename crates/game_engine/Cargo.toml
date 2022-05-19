@@ -17,6 +17,7 @@ system_camera = { path = "../system_camera" }
 system_interfaces = { path = "../system_interfaces" }
 system_navigation = { path = "../system_navigation" }
 system_network = { path = "../system_network" }
+system_physics = { path = "../system_physics" }
 system_static_mesh = { path = "../system_static_mesh" }
 task_executor = { path = "../task_executor" }
 update_buffer = { path = "../update_buffer" }

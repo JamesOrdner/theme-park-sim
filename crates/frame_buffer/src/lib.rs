@@ -45,12 +45,8 @@ impl FrameBufferReader<'_> {
     }
 
     #[inline]
-    pub fn camera_info(&self) -> Option<CameraInfo> {
-        let swap_index = self.frame_buffer_manager.read_index();
-        self.frame_buffer_manager
-            .event_buffers
-            .iter()
-            .find_map(|buffers| buffers[swap_index].camera_info)
+    pub fn camera_info(&self) -> &CameraInfo {
+        &self.frame_buffer_manager.camera_info
     }
 
     #[inline]
@@ -70,14 +66,6 @@ pub struct FrameBufferWriter<'a> {
 }
 
 impl FrameBufferWriter<'_> {
-    #[inline]
-    pub fn set_camera_info(&self, info: CameraInfo) {
-        EVENT_BUFFER.with(|queue| unsafe {
-            queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize].camera_info =
-                Some(info);
-        });
-    }
-
     #[inline]
     pub fn push_location(&self, entity_id: EntityId, location: Vec3) {
         EVENT_BUFFER.with(|queue| unsafe {
@@ -104,6 +92,11 @@ impl SyncFrameBufferDelegate<'_> {
     pub fn despawn(&mut self, entity_id: EntityId) {
         self.frame_buffer_manager.despawned.push(entity_id);
     }
+
+    #[inline]
+    pub fn set_camera_info(&mut self, info: CameraInfo) {
+        self.frame_buffer_manager.camera_info = info;
+    }
 }
 
 #[derive(Clone)]
@@ -112,16 +105,31 @@ pub struct SpawnedStaticMesh {
     pub resource: Arc<Resource>,
 }
 
-#[derive(Clone, Copy)]
 pub struct CameraInfo {
     pub focus: Vec3,
     pub location: Vec3,
     pub up: Vec3,
+    pub fov: f32,
+    pub near_plane: f32,
+    pub far_plane: f32,
+}
+
+impl Default for CameraInfo {
+    fn default() -> Self {
+        // some reasonable default but actual values don't matter
+        Self {
+            focus: Vec3::zeros(),
+            location: Vec3::from([0.0, 0.0, 1.0]),
+            up: Vec3::from([0.0, 1.0, 0.0]),
+            fov: 1.0,
+            near_plane: 0.01,
+            far_plane: 50.0,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
 struct Data {
-    camera_info: Option<CameraInfo>,
     locations: Vec<EntityData<Vec3>>,
 }
 
@@ -139,7 +147,6 @@ impl<T> EntityData<T> {
 
 impl Data {
     fn clear(&mut self) {
-        self.camera_info = None;
         self.locations.clear();
     }
 }
@@ -148,6 +155,7 @@ pub struct FrameBufferManager {
     event_buffers: Vec<[Data; 2]>,
     spawned_static_meshes: Vec<SpawnedStaticMesh>,
     despawned: Vec<EntityId>,
+    camera_info: CameraInfo,
     swap_index: bool,
 }
 
@@ -157,6 +165,7 @@ impl FrameBufferManager {
             event_buffers: vec![[Data::default(), Data::default()]; thread_count.get()],
             spawned_static_meshes: Vec::new(),
             despawned: Vec::new(),
+            camera_info: CameraInfo::default(),
             swap_index: false,
         }
     }

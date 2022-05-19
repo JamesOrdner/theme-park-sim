@@ -642,6 +642,8 @@ dependencies = [
  "game_input",
  "game_resources",
  "nalgebra-glm",
+ "system_camera",
+ "system_interfaces",
 ]
 
 [[package]]
@@ -667,6 +669,7 @@ dependencies = [
  "system_interfaces",
  "system_navigation",
  "system_network",
+ "system_physics",
  "system_static_mesh",
  "task_executor",
  "update_buffer",
@@ -1756,6 +1759,13 @@ name = "system_network"
 version = "0.0.0"
 dependencies = [
  "update_buffer",
+]
+
+[[package]]
+name = "system_physics"
+version = "0.0.0"
+dependencies = [
+ "system_interfaces",
 ]
 
 [[package]]

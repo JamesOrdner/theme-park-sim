@@ -3,24 +3,34 @@ use frame_buffer::{SpawnedStaticMesh, SyncFrameBufferDelegate};
 use game_entity::EntityId;
 use game_input::GameInputInterface;
 use game_resources::ResourceManager;
-use nalgebra_glm::Vec3;
+use system_camera::CameraInterface;
+use system_interfaces::physics::Interface as PhysicsInterface;
 
 use crate::world::World;
 
 mod world;
 
-#[derive(Default)]
 pub struct GameController {
+    physics: PhysicsInterface,
     resource_manager: ResourceManager,
     world: World,
 }
 
 impl GameController {
+    pub fn new(physics: PhysicsInterface) -> Self {
+        Self {
+            physics,
+            resource_manager: Default::default(),
+            world: Default::default(),
+        }
+    }
+
     pub fn update(
         &mut self,
         event_delegate: &mut SyncEventDelegate,
         frame_buffer: &mut SyncFrameBufferDelegate,
         input: GameInputInterface,
+        camera: CameraInterface,
     ) {
         // temp
         let entity_id = EntityId::new(1);
@@ -47,14 +57,14 @@ impl GameController {
 
         // object placement
 
-        if self.world.contains(entity_id)
-            && event_delegate
-                .input_events()
-                .any(|event| matches!(event, InputEvent::CursorMoved(_)))
-        {
-            let cursor_position = input.cursor_position_ndc();
-            let location = Vec3::from([cursor_position.x, 0.0, -cursor_position.y]);
-            event_delegate.push_game_event(GameEvent::StaticMeshLocation(entity_id, location));
+        if self.world.contains(entity_id) {
+            let origin = camera.location();
+            let orientation = camera.deproject(&input.cursor_position_ndc());
+
+            if let Some(hit_location) = self.physics.raycast(origin, &orientation) {
+                let event = GameEvent::StaticMeshLocation(entity_id, hit_location);
+                event_delegate.push_game_event(event);
+            }
         }
     }
 }

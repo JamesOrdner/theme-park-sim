@@ -130,7 +130,7 @@ impl GameInput {
                         VirtualKeyCode::D => {
                             self.camera_movement.x = if pressed { 1.0 } else { 0.0 };
                         }
-                        VirtualKeyCode::R => {
+                        VirtualKeyCode::Space => {
                             self.camera_rotating = pressed;
                         }
                         _ => {}
@@ -159,8 +159,8 @@ impl GameInput {
     }
 
     pub fn update(&mut self, event_delegate: &mut SyncEventDelegate) {
-        if let Some(cursor_position) = self.cursor_position.updated() {
-            event_delegate.push_input_event(InputEvent::CursorMoved(*cursor_position));
+        if self.cursor_position.updated().is_some() {
+            event_delegate.push_input_event(InputEvent::CursorMoved);
         }
 
         if let Some(left_mouse_button) = self.left_mouse_button.updated() {

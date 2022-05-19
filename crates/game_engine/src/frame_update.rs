@@ -1,8 +1,9 @@
-use event::AsyncEventDelegate;
-use frame_buffer::AsyncFrameBufferDelegate;
+use event::{AsyncEventDelegate, SyncEventDelegate};
+use frame_buffer::{AsyncFrameBufferDelegate, SyncFrameBufferDelegate};
 use futures::pin_mut;
 use system_interfaces::SystemData;
 use task_executor::task::parallel;
+use winit::window::Window;
 
 pub struct FrameUpdate {
     pub audio: system_audio::FrameData,
@@ -12,8 +13,14 @@ pub struct FrameUpdate {
 }
 
 impl FrameUpdate {
-    pub fn new(system_data: &SystemData) -> Self {
-        let camera = system_camera::FrameData::new(system_data.static_mesh.clone().into());
+    pub fn new(system_data: &SystemData, window: &Window) -> Self {
+        let size = window.inner_size();
+
+        let camera = system_camera::FrameData::new(
+            size.width,
+            size.height,
+            system_data.physics.clone().into(),
+        );
         let navigation = system_navigation::FrameData::new(
             system_data.navigation.clone(),
             system_data.static_mesh.clone().into(),
@@ -28,22 +35,30 @@ impl FrameUpdate {
         }
     }
 
-    pub async fn update(
+    /// Update systems which must update synchronously, before the game state update
+    pub fn update_sync(
+        &mut self,
+        event_delegate: &SyncEventDelegate<'_>,
+        frame_buffer: &mut SyncFrameBufferDelegate<'_>,
+        delta_time: f32,
+    ) {
+        self.camera.update(event_delegate, frame_buffer, delta_time);
+    }
+
+    /// Update systems which may update asynchronously, in parallel with frame rendering
+    pub async fn update_async(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &AsyncFrameBufferDelegate<'_>,
-        delta_time: f32,
     ) {
         let audio = self.audio.update(frame_buffer);
-        let camera = self.camera.update(event_delegate, frame_buffer, delta_time);
         let navigation = self.navigation.update(event_delegate);
         let static_mesh = self.static_mesh.update(event_delegate, frame_buffer);
 
         pin_mut!(audio);
-        pin_mut!(camera);
         pin_mut!(navigation);
         pin_mut!(static_mesh);
 
-        parallel([audio, camera, navigation, static_mesh]).await;
+        parallel([audio, navigation, static_mesh]).await;
     }
 }

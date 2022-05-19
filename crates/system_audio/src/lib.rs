@@ -17,10 +17,10 @@ pub struct FrameData {
 
 impl FrameData {
     pub async fn update(&mut self, frame_buffer: &AsyncFrameBufferDelegate<'_>) {
-        if let Some(camera_info) = frame_buffer.reader().camera_info() {
-            self.camera_location = camera_info.location;
-            self.camera_orientation = (camera_info.focus - camera_info.location).normalize();
-        }
+        let frame_buffer = frame_buffer.reader();
+        let camera_info = frame_buffer.camera_info();
+        self.camera_location = camera_info.location;
+        self.camera_orientation = (camera_info.focus - camera_info.location).normalize();
     }
 }
 

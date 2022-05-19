@@ -24,9 +24,4 @@ impl Interface {
         let data = self.data.read_single().await;
         data.locations.get(entity_id).copied()
     }
-
-    pub async fn raycast(&self, _origin: &Vec3, _direction: &Vec3) -> Option<Vec3> {
-        let _ = self.data.read_single().await;
-        None
-    }
 }

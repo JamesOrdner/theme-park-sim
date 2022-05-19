@@ -20,7 +20,7 @@ pub enum InputEvent {
     CameraMoveAxis(Vec2),
     CameraRotateAxis(Vec2),
     CameraZoom(f32),
-    CursorMoved(Vec2),
+    CursorMoved,
     MouseButton(bool),
 }
 
