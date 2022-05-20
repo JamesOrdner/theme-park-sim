@@ -137,19 +137,17 @@ impl GameInput {
                     }
                 }
             }
-            WindowEvent::MouseInput {
-                button: MouseButton::Left,
-                state,
-                ..
-            } => {
-                *self.left_mouse_button = state == ElementState::Pressed;
-            }
-            WindowEvent::MouseInput {
-                button: MouseButton::Middle,
-                state,
-                ..
-            } => {
-                self.camera_rotating = state == ElementState::Pressed;
+            WindowEvent::MouseInput { button, state, .. } => {
+                let pressed = state == ElementState::Pressed;
+                match button {
+                    MouseButton::Left => {
+                        *self.left_mouse_button = pressed;
+                    }
+                    MouseButton::Middle => {
+                        self.camera_rotating = state == ElementState::Pressed;
+                    }
+                    _ => {}
+                }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_zoom += match delta {
