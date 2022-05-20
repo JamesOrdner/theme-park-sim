@@ -9,50 +9,48 @@ thread_local! {
 }
 
 pub struct AsyncFrameBufferDelegate<'a> {
-    frame_buffer_manager: &'a FrameBufferManager,
+    inner: &'a FrameBufferManager,
 }
 
 impl<'a> AsyncFrameBufferDelegate<'a> {
     #[inline]
     pub fn reader(&self) -> FrameBufferReader {
-        FrameBufferReader {
-            frame_buffer_manager: self.frame_buffer_manager,
-        }
+        FrameBufferReader { inner: self.inner }
     }
 
     #[inline]
     pub fn writer(&self) -> FrameBufferWriter {
         FrameBufferWriter {
-            swap_index: self.frame_buffer_manager.swap_index,
+            swap_index: self.inner.swap_index,
             marker: PhantomData,
         }
     }
 }
 
 pub struct FrameBufferReader<'a> {
-    frame_buffer_manager: &'a FrameBufferManager,
+    inner: &'a FrameBufferManager,
 }
 
 impl FrameBufferReader<'_> {
     #[inline]
     pub fn spawned_static_meshes(&self) -> impl Iterator<Item = &SpawnedStaticMesh> {
-        self.frame_buffer_manager.spawned_static_meshes.iter()
+        self.inner.spawned_static_meshes.iter()
     }
 
     #[inline]
     pub fn despawned(&self) -> impl Iterator<Item = &EntityId> {
-        self.frame_buffer_manager.despawned.iter()
+        self.inner.despawned.iter()
     }
 
     #[inline]
     pub fn camera_info(&self) -> &CameraInfo {
-        &self.frame_buffer_manager.camera_info
+        &self.inner.camera_info
     }
 
     #[inline]
     pub fn locations(&self) -> impl Iterator<Item = (EntityId, &Vec3)> {
-        let swap_index = self.frame_buffer_manager.read_index();
-        self.frame_buffer_manager
+        let swap_index = self.inner.read_index();
+        self.inner
             .event_buffers
             .iter()
             .flat_map(move |buffers| &buffers[swap_index].locations)
@@ -77,25 +75,31 @@ impl FrameBufferWriter<'_> {
 }
 
 pub struct SyncFrameBufferDelegate<'a> {
-    frame_buffer_manager: &'a mut FrameBufferManager,
+    inner: &'a mut FrameBufferManager,
 }
 
 impl SyncFrameBufferDelegate<'_> {
     #[inline]
     pub fn spawn_static_mesh(&mut self, static_mesh: SpawnedStaticMesh) {
-        self.frame_buffer_manager
-            .spawned_static_meshes
-            .push(static_mesh);
+        self.inner.spawned_static_meshes.push(static_mesh);
     }
 
     #[inline]
     pub fn despawn(&mut self, entity_id: EntityId) {
-        self.frame_buffer_manager.despawned.push(entity_id);
+        self.inner.despawned.push(entity_id);
     }
 
     #[inline]
     pub fn set_camera_info(&mut self, info: CameraInfo) {
-        self.frame_buffer_manager.camera_info = info;
+        self.inner.camera_info = info;
+    }
+
+    #[inline]
+    pub fn push_location(&mut self, entity_id: EntityId, location: Vec3) {
+        let index = self.inner.read_index(); // post-swap
+        self.inner.event_buffers[0][index]
+            .locations
+            .push(EntityData::new(entity_id, location));
     }
 }
 
@@ -175,15 +179,11 @@ impl FrameBufferManager {
     }
 
     pub fn sync_delegate(&mut self) -> SyncFrameBufferDelegate {
-        SyncFrameBufferDelegate {
-            frame_buffer_manager: self,
-        }
+        SyncFrameBufferDelegate { inner: self }
     }
 
     pub fn async_delegate(&mut self) -> AsyncFrameBufferDelegate {
-        AsyncFrameBufferDelegate {
-            frame_buffer_manager: self,
-        }
+        AsyncFrameBufferDelegate { inner: self }
     }
 
     pub fn swap(&mut self) {

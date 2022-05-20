@@ -27,7 +27,7 @@ impl FrameData {
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
-        frame_buffer: &AsyncFrameBufferDelegate<'_>,
+        _frame_buffer: &AsyncFrameBufferDelegate<'_>,
     ) {
         // update system data
 
@@ -56,11 +56,6 @@ impl FrameData {
         drop(data);
 
         // update frame buffer
-
-        let data = self.shared_data.read_single().await;
-        for (entity_id, location) in &data.locations {
-            frame_buffer.writer().push_location(*entity_id, *location);
-        }
 
         // notify other systems of changes
 

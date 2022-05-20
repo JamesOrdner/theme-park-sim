@@ -64,6 +64,7 @@ impl GameController {
             if let Some(hit_location) = self.physics.raycast(origin, &orientation) {
                 let event = GameEvent::StaticMeshLocation(entity_id, hit_location);
                 event_delegate.push_game_event(event);
+                frame_buffer.push_location(entity_id, hit_location);
             }
         }
     }

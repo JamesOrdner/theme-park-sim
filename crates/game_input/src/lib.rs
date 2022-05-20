@@ -144,6 +144,13 @@ impl GameInput {
             } => {
                 *self.left_mouse_button = state == ElementState::Pressed;
             }
+            WindowEvent::MouseInput {
+                button: MouseButton::Middle,
+                state,
+                ..
+            } => {
+                self.camera_rotating = state == ElementState::Pressed;
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_zoom += match delta {
                     MouseScrollDelta::LineDelta(_, lines) => lines * 50.0,
