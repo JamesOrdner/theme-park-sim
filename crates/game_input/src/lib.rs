@@ -144,7 +144,7 @@ impl GameInput {
                         *self.left_mouse_button = pressed;
                     }
                     MouseButton::Middle => {
-                        self.camera_rotating = state == ElementState::Pressed;
+                        self.camera_rotating = pressed;
                     }
                     _ => {}
                 }
