@@ -199,13 +199,18 @@ impl Vulkan {
         self.pipeline.bind(frame_info.command_buffer);
 
         let scene_data = {
-            let mut proj_matrix = perspective_lh_zo(self.aspect, 1.0, 0.01, 50.0);
+            let camera_info = frame_buffer.camera_info();
+
+            let mut proj_matrix = perspective_lh_zo(
+                self.aspect,
+                camera_info.fov,
+                camera_info.near_plane,
+                camera_info.far_plane,
+            );
             proj_matrix[5] *= -1.0;
 
-            let view_matrix = frame_buffer
-                .camera_info()
-                .map(|info| look_at_lh(&info.location, &info.focus, &info.up))
-                .unwrap_or_else(Mat4::identity);
+            let view_matrix =
+                look_at_lh(&camera_info.location, &camera_info.focus, &camera_info.up);
 
             SceneData {
                 proj_matrix,
@@ -224,7 +229,7 @@ impl Vulkan {
             )
         }
 
-        for (i, static_mesh) in self.scene.static_meshes.iter().enumerate() {
+        for (i, static_mesh) in self.scene.static_meshes.values().enumerate() {
             unsafe {
                 self.vulkan_info.device.cmd_bind_descriptor_sets(
                     frame_info.command_buffer,
@@ -302,6 +307,19 @@ impl Vulkan {
 
     async fn update_scene(&mut self, frame_buffer: &FrameBufferReader<'_>) {
         let upload_meshes = async {
+            // despawn
+
+            for buffer in self.scene.delete_queue.drain(..) {
+                self.allocator.dealloc(buffer);
+            }
+
+            for entity_id in frame_buffer.despawned() {
+                let static_mesh = self.scene.static_meshes.remove(*entity_id);
+                self.scene.delete_queue.push(static_mesh.vertex_buffer);
+            }
+
+            // spawn
+
             self.transfer.begin_transfers(&mut self.allocator).unwrap();
 
             for spawned in frame_buffer.spawned_static_meshes() {
@@ -331,11 +349,13 @@ impl Vulkan {
 
                 // create vertex buffer and transfer
 
-                self.scene.static_meshes.push(scene::StaticMesh {
-                    entity_id: spawned.entity_id,
-                    vertex_buffer,
-                    vertex_offset: VERTEX_OFFSET as vk::DeviceSize,
-                });
+                self.scene.static_meshes.insert(
+                    spawned.entity_id,
+                    scene::StaticMesh {
+                        vertex_buffer,
+                        vertex_offset: VERTEX_OFFSET as vk::DeviceSize,
+                    },
+                );
             }
 
             self.transfer.submit_transfers().unwrap();
@@ -346,12 +366,14 @@ impl Vulkan {
                 .as_mut()
                 .unwrap();
 
-            frame.update_instance(
-                0,
-                &InstanceData {
-                    model_matrix: Mat4::identity(),
-                },
-            );
+            for (_, location) in frame_buffer.locations() {
+                frame.update_instance(
+                    0,
+                    &InstanceData {
+                        model_matrix: nalgebra_glm::translate(&Mat4::identity(), location),
+                    },
+                );
+            }
         };
 
         pin_mut!(upload_meshes);

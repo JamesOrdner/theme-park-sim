@@ -1,6 +1,7 @@
 use std::{
+    iter::zip,
     num::NonZeroU32,
-    ops::{Deref, Index, IndexMut},
+    ops::{Deref, Index, IndexMut, RangeBounds},
     slice,
 };
 
@@ -95,6 +96,11 @@ impl<T> EntityMap<T> {
     }
 
     #[inline]
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
+    }
+
+    #[inline]
     pub fn extend<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = (EntityId, T)>,
@@ -109,6 +115,14 @@ impl<T> EntityMap<T> {
             self.entity_ids.push(entry.0);
             self.data.push(entry.1);
         }
+    }
+
+    #[inline]
+    pub fn drain<R>(&mut self, range: R) -> impl Iterator<Item = (EntityId, T)> + '_
+    where
+        R: RangeBounds<usize> + Copy,
+    {
+        zip(self.entity_ids.drain(range), self.data.drain(range))
     }
 }
 
