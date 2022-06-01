@@ -1,5 +1,6 @@
 use erupt::vk;
 use game_entity::EntityMap;
+use nalgebra_glm::Mat4;
 
 use crate::allocator::{GpuAllocator, GpuBuffer};
 
@@ -12,6 +13,7 @@ pub struct Scene {
 pub struct StaticMesh {
     pub vertex_buffer: GpuBuffer,
     pub vertex_offset: vk::DeviceSize,
+    pub transform: Mat4,
 }
 
 impl Scene {

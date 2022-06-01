@@ -6,7 +6,6 @@ edition = "2021"
 [target.'cfg(not(target_vendor = "apple"))'.dependencies]
 anyhow = "1.0.56"
 erupt = "0.22"
-futures = { version = "0.3.21", default-features = false }
 gpu-alloc = "0.5.3"
 gpu-alloc-erupt = "0.7.0"
 memoffset = "0.6.5"
@@ -16,4 +15,3 @@ winit = "0.26.1"
 
 frame_buffer = { path = "../frame_buffer" }
 game_entity = { path = "../game_entity" }
-task_executor = { path = "../task_executor" }

@@ -1981,14 +1981,12 @@ dependencies = [
  "anyhow",
  "erupt",
  "frame_buffer",
- "futures",
  "game_entity",
  "gpu-alloc",
  "gpu-alloc-erupt",
  "memoffset",
  "nalgebra-glm",
  "smallvec",
- "task_executor",
  "winit",
 ]
 
