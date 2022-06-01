@@ -57,13 +57,13 @@ impl GameController {
                     }
                 }
                 InputEvent::ServerBegin => {
-                    network.set_role(Role::Server);
+                    network.role = Role::Server;
                 }
                 InputEvent::ServerConnect => {
-                    network.set_role(Role::Client);
+                    network.role = Role::Client;
                 }
                 InputEvent::ServerDisconnect => {
-                    network.set_role(Role::Offline);
+                    network.role = Role::Offline;
                 }
                 _ => {}
             }
@@ -71,7 +71,7 @@ impl GameController {
 
         // object placement
 
-        if self.world.contains(entity_id) {
+        if self.world.contains(entity_id) && network.role != Role::Client {
             let origin = camera.location();
             let orientation = camera.deproject(&input.cursor_position_ndc());
 

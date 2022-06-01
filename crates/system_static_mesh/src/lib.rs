@@ -5,7 +5,7 @@ use frame_buffer::AsyncFrameBufferDelegate;
 use game_entity::EntityMap;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
-use update_buffer::UpdateBufferRef;
+use update_buffer::StaticMeshUpdateBufferRef;
 
 pub fn shared_data() -> SharedData {
     Default::default()
@@ -14,6 +14,7 @@ pub fn shared_data() -> SharedData {
 pub struct FrameData {
     shared_data: SharedData,
     modified_entities: EntityMap<Vec3>,
+    swapped: bool,
 }
 
 impl FrameData {
@@ -21,6 +22,7 @@ impl FrameData {
         Self {
             shared_data,
             modified_entities: EntityMap::new(),
+            swapped: false,
         }
     }
 
@@ -33,16 +35,20 @@ impl FrameData {
 
         let mut data = self.shared_data.write_single().await;
 
-        let frame_buffer_writer = frame_buffer.writer();
+        if self.swapped {
+            self.swapped = false;
 
-        for (entity_id, modified_location) in &self.modified_entities {
-            if let Some(location) = data.locations.get_mut(*entity_id) {
-                *location = *modified_location;
-                frame_buffer_writer.push_location(*entity_id, *modified_location);
+            let frame_buffer_writer = frame_buffer.writer();
+
+            for (entity_id, modified_location) in &self.modified_entities {
+                if let Some(location) = data.locations.get_mut(*entity_id) {
+                    *location = *modified_location;
+                    frame_buffer_writer.push_location(*entity_id, *modified_location);
+                }
             }
-        }
 
-        self.modified_entities.clear();
+            self.modified_entities.clear();
+        }
 
         for game_event in event_delegate.game_events() {
             match game_event {
@@ -73,9 +79,11 @@ impl FixedData {
             &mut self.modified_entities,
             &mut frame_data.modified_entities,
         );
+
+        frame_data.swapped = true;
     }
 
-    pub async fn update(&mut self, update_buffer: UpdateBufferRef<'_>) {
+    pub async fn update(&mut self, update_buffer: StaticMeshUpdateBufferRef<'_>) {
         // notify other of system changes
 
         for (entity_id, location) in &self.modified_entities {

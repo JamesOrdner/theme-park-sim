@@ -10,7 +10,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender};
 use laminar::{Packet, Socket, SocketEvent};
-use update_buffer::UpdateBufferRef;
+use update_buffer::NetworkUpdateBufferRef;
 
 use crate::{
     packet::{Connect, Heartbeat, Location, NetworkId},
@@ -57,7 +57,7 @@ impl Drop for Server {
 }
 
 impl Server {
-    pub async fn update(&mut self, update_buffer: UpdateBufferRef<'_>) {
+    pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
         // recv
 
         while let Ok(msg) = self.receiver.try_recv() {
@@ -100,7 +100,7 @@ impl Server {
         }
     }
 
-    fn update_locations(&mut self, update_buffer: UpdateBufferRef) {
+    fn update_locations(&mut self, update_buffer: NetworkUpdateBufferRef) {
         for (entity_id, location) in update_buffer.locations() {
             let location = Location {
                 network_id: NetworkId(entity_id.get() as u16),

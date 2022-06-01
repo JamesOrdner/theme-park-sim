@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use update_buffer::UpdateBufferRef;
+use update_buffer::NetworkUpdateBufferRef;
 
 use self::{client::Client, server::Server};
 
@@ -11,7 +11,7 @@ mod server;
 const SERVER_ADDR: &str = "127.0.0.1:12351";
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Role {
     Offline,
     Client,
@@ -49,13 +49,7 @@ impl PartialEq<Role> for RoleImpl {
 
 #[derive(Default)]
 pub struct FrameData {
-    role: Role,
-}
-
-impl FrameData {
-    pub fn set_role(&mut self, role: Role) {
-        self.role = role;
-    }
+    pub role: Role,
 }
 
 #[derive(Default)]
@@ -69,7 +63,7 @@ impl FixedData {
         self.target_role = frame_data.role;
     }
 
-    pub async fn update(&mut self, update_buffer: UpdateBufferRef<'_>) {
+    pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
         if self.role != self.target_role {
             log::info!("setting network role to {:?}", self.target_role);
 

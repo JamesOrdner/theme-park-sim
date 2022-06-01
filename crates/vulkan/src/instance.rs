@@ -7,8 +7,6 @@ use erupt::{
 };
 use winit::window::Window;
 
-use crate::cstr;
-
 pub struct Instance {
     pub surface: vk::SurfaceKHR,
     loader: Arc<InstanceLoader>,
@@ -21,7 +19,7 @@ impl Instance {
             .api_version(vk::API_VERSION_1_3);
 
         #[cfg(debug_assertions)]
-        let layer_names: [*const c_char; 1] = [cstr!("VK_LAYER_KHRONOS_validation")];
+        let layer_names: [*const c_char; 1] = [crate::cstr!("VK_LAYER_KHRONOS_validation")];
         #[cfg(not(debug_assertions))]
         let layer_names: [*const c_char; 0] = [];
 

@@ -11,7 +11,7 @@ use std::{
 use crossbeam_channel::{Receiver, Sender};
 use game_entity::EntityId;
 use laminar::{Packet, Socket, SocketEvent};
-use update_buffer::UpdateBufferRef;
+use update_buffer::NetworkUpdateBufferRef;
 
 use crate::{
     packet::{Heartbeat, LocationRef, PacketRef},
@@ -60,7 +60,7 @@ impl Drop for Client {
 }
 
 impl Client {
-    pub async fn update(&mut self, update_buffer: UpdateBufferRef<'_>) {
+    pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
         // recv
 
         while let Ok(msg) = self.receiver.try_recv() {
@@ -83,13 +83,13 @@ impl Client {
             .unwrap();
     }
 
-    fn recv(&mut self, packet: &Packet, update_buffer: UpdateBufferRef) {
+    fn recv(&mut self, packet: &Packet, update_buffer: NetworkUpdateBufferRef) {
         if let PacketRef::Location(location) = PacketRef::from(packet.payload()) {
             self.handle_location(location, update_buffer);
         }
     }
 
-    fn handle_location(&mut self, location: LocationRef, update_buffer: UpdateBufferRef) {
+    fn handle_location(&mut self, location: LocationRef, update_buffer: NetworkUpdateBufferRef) {
         let entity_id = EntityId::new(location.network_id().0 as u32);
         update_buffer.push_location(entity_id, location.location());
     }

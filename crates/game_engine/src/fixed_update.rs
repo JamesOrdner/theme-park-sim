@@ -49,8 +49,10 @@ impl FixedUpdate {
 
             {
                 let audio = fixed_systems.audio.update();
-                let network = fixed_systems.network.update(update_buffer);
-                let static_mesh = fixed_systems.static_mesh.update(update_buffer);
+                let network = fixed_systems.network.update(update_buffer.network());
+                let static_mesh = fixed_systems
+                    .static_mesh
+                    .update(update_buffer.static_mesh());
 
                 pin_mut!(audio);
                 pin_mut!(network);
