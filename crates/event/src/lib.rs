@@ -22,6 +22,9 @@ pub enum InputEvent {
     CameraZoom(f32),
     CursorMoved,
     MouseButton(bool),
+    ServerBegin,
+    ServerConnect,
+    ServerDisconnect,
 }
 
 thread_local! {
@@ -48,6 +51,13 @@ impl SyncEventDelegate<'_> {
         self.event_manager.input_event_buffer.iter()
     }
 
+    #[inline]
+    pub fn input_events_mut(&mut self) -> (SyncGameEventWriter, impl Iterator<Item = &InputEvent>) {
+        let game_event_writer = SyncGameEventWriter(&mut self.event_manager.game_event_buffer);
+        let input_events = self.event_manager.input_event_buffer.iter();
+        (game_event_writer, input_events)
+    }
+
     /// Frame events which occurred in the previous frame
     #[inline]
     pub fn frame_events(&self) -> impl Iterator<Item = &FrameEvent> {
@@ -56,6 +66,15 @@ impl SyncEventDelegate<'_> {
             .event_buffers
             .iter()
             .flat_map(move |buffers| &buffers[swap_index])
+    }
+}
+
+pub struct SyncGameEventWriter<'a>(&'a mut Vec<GameEvent>);
+
+impl SyncGameEventWriter<'_> {
+    #[inline]
+    pub fn push_game_event(&mut self, event: GameEvent) {
+        self.0.push(event);
     }
 }
 

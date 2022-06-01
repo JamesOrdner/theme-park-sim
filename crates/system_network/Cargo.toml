@@ -4,6 +4,10 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-# laminar = "0.5.0"
+crossbeam-channel = "0.5"
+laminar = "0.5.0"
+log = "0.4.16"
+nalgebra-glm = "0.16.0"
 
+game_entity = { path = "../game_entity" }
 update_buffer = { path = "../update_buffer" }

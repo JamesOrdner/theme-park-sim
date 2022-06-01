@@ -5,7 +5,7 @@ use frame_buffer::AsyncFrameBufferDelegate;
 use game_entity::EntityMap;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
-use update_buffer::UpdateBufferRef;
+use update_buffer::StaticMeshUpdateBufferRef;
 
 pub fn shared_data() -> SharedData {
     Default::default()
@@ -14,6 +14,7 @@ pub fn shared_data() -> SharedData {
 pub struct FrameData {
     shared_data: SharedData,
     modified_entities: EntityMap<Vec3>,
+    swapped: bool,
 }
 
 impl FrameData {
@@ -21,17 +22,33 @@ impl FrameData {
         Self {
             shared_data,
             modified_entities: EntityMap::new(),
+            swapped: false,
         }
     }
 
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
-        _frame_buffer: &AsyncFrameBufferDelegate<'_>,
+        frame_buffer: &AsyncFrameBufferDelegate<'_>,
     ) {
         // update system data
 
         let mut data = self.shared_data.write_single().await;
+
+        if self.swapped {
+            self.swapped = false;
+
+            let frame_buffer_writer = frame_buffer.writer();
+
+            for (entity_id, modified_location) in &self.modified_entities {
+                if let Some(location) = data.locations.get_mut(*entity_id) {
+                    *location = *modified_location;
+                    frame_buffer_writer.push_location(*entity_id, *modified_location);
+                }
+            }
+
+            self.modified_entities.clear();
+        }
 
         for game_event in event_delegate.game_events() {
             match game_event {
@@ -43,23 +60,10 @@ impl FrameData {
                 }
                 GameEvent::StaticMeshLocation(entity_id, location) => {
                     data.locations[*entity_id] = *location;
+                    self.modified_entities.insert(*entity_id, *location);
                 }
             }
         }
-
-        for (modified_entity_id, modified_location) in &self.modified_entities {
-            if let Some(location) = data.locations.get_mut(*modified_entity_id) {
-                *location = *modified_location;
-            }
-        }
-
-        drop(data);
-
-        // update frame buffer
-
-        // notify other systems of changes
-
-        self.modified_entities.clear();
     }
 }
 
@@ -75,9 +79,11 @@ impl FixedData {
             &mut self.modified_entities,
             &mut frame_data.modified_entities,
         );
+
+        frame_data.swapped = true;
     }
 
-    pub async fn update(&mut self, update_buffer: UpdateBufferRef<'_>) {
+    pub async fn update(&mut self, update_buffer: StaticMeshUpdateBufferRef<'_>) {
         // notify other of system changes
 
         for (entity_id, location) in &self.modified_entities {
@@ -91,7 +97,7 @@ impl FixedData {
         self.modified_entities.extend(
             update_buffer
                 .locations()
-                .map(|location| (location.entity_id, location.data)),
+                .map(|(entity_id, location)| (entity_id, *location)),
         );
     }
 }

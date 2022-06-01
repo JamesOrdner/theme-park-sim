@@ -5,11 +5,9 @@ use std::{mem, slice};
 use anyhow::Result;
 use erupt::{vk, EntryLoader};
 use frame_buffer::FrameBufferReader;
-use futures::pin_mut;
 use nalgebra_glm::{look_at_lh, perspective_lh_zo, Mat4};
 use pipeline::SceneData;
 use scene::Scene;
-use task_executor::task::parallel;
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::{
@@ -126,7 +124,7 @@ impl Vulkan {
     }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
-        self.update_scene(frame_buffer).await;
+        self.update_scene(frame_buffer);
 
         let frame_info = self.frames[self.current_frame_index as usize]
             .as_mut()
@@ -305,81 +303,80 @@ impl Vulkan {
         self.current_frame_index = !self.current_frame_index;
     }
 
-    async fn update_scene(&mut self, frame_buffer: &FrameBufferReader<'_>) {
-        let upload_meshes = async {
-            // despawn
+    fn update_scene(&mut self, frame_buffer: &FrameBufferReader<'_>) {
+        // despawn
 
-            for buffer in self.scene.delete_queue.drain(..) {
-                self.allocator.dealloc(buffer);
+        for buffer in self.scene.delete_queue.drain(..) {
+            self.allocator.dealloc(buffer);
+        }
+
+        for entity_id in frame_buffer.despawned() {
+            let static_mesh = self.scene.static_meshes.remove(*entity_id);
+            self.scene.delete_queue.push(static_mesh.vertex_buffer);
+        }
+
+        // spawn
+
+        self.transfer.begin_transfers(&mut self.allocator).unwrap();
+
+        for spawned in frame_buffer.spawned_static_meshes() {
+            const INDICES: [u16; 3] = [0, 1, 2];
+            const VERTEX_DATA: [f32; 9] = [0.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
+
+            const VERTEX_OFFSET: usize = 8;
+            const SIZE: usize = VERTEX_OFFSET + mem::size_of::<[f32; 9]>();
+
+            let mut data = [0; SIZE];
+
+            unsafe {
+                let data = data.as_mut_ptr();
+                let indices = slice::from_raw_parts_mut(data as *mut u16, INDICES.len());
+                indices.copy_from_slice(&INDICES);
+
+                let data = data.add(VERTEX_OFFSET);
+                let vertices = slice::from_raw_parts_mut(data as *mut f32, VERTEX_DATA.len());
+                vertices.copy_from_slice(&VERTEX_DATA);
             }
 
-            for entity_id in frame_buffer.despawned() {
-                let static_mesh = self.scene.static_meshes.remove(*entity_id);
-                self.scene.delete_queue.push(static_mesh.vertex_buffer);
-            }
+            let vertex_buffer = self.transfer.transfer_buffer(
+                &data,
+                vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::INDEX_BUFFER,
+                &mut self.allocator,
+            );
 
-            // spawn
+            // create vertex buffer and transfer
 
-            self.transfer.begin_transfers(&mut self.allocator).unwrap();
+            self.scene.static_meshes.insert(
+                spawned.entity_id,
+                scene::StaticMesh {
+                    vertex_buffer,
+                    vertex_offset: VERTEX_OFFSET as vk::DeviceSize,
+                    transform: Mat4::identity(),
+                },
+            );
+        }
 
-            for spawned in frame_buffer.spawned_static_meshes() {
-                const INDICES: [u16; 3] = [0, 1, 2];
-                const VERTEX_DATA: [f32; 9] = [0.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
+        self.transfer.submit_transfers().unwrap();
 
-                const VERTEX_OFFSET: usize = 8;
-                const SIZE: usize = VERTEX_OFFSET + mem::size_of::<[f32; 9]>();
+        // update instances
 
-                let mut data = [0; SIZE];
+        for (entity_id, location) in frame_buffer.locations() {
+            let transform = nalgebra_glm::translate(&Mat4::identity(), location);
+            self.scene.static_meshes[entity_id].transform = transform;
+        }
 
-                unsafe {
-                    let data = data.as_mut_ptr();
-                    let indices = slice::from_raw_parts_mut(data as *mut u16, INDICES.len());
-                    indices.copy_from_slice(&INDICES);
+        let frame = self.frames[self.current_frame_index as usize]
+            .as_mut()
+            .unwrap();
 
-                    let data = data.add(VERTEX_OFFSET);
-                    let vertices = slice::from_raw_parts_mut(data as *mut f32, VERTEX_DATA.len());
-                    vertices.copy_from_slice(&VERTEX_DATA);
-                }
-
-                let vertex_buffer = self.transfer.transfer_buffer(
-                    &data,
-                    vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::INDEX_BUFFER,
-                    &mut self.allocator,
-                );
-
-                // create vertex buffer and transfer
-
-                self.scene.static_meshes.insert(
-                    spawned.entity_id,
-                    scene::StaticMesh {
-                        vertex_buffer,
-                        vertex_offset: VERTEX_OFFSET as vk::DeviceSize,
-                    },
-                );
-            }
-
-            self.transfer.submit_transfers().unwrap();
-        };
-
-        let update_instances = async {
-            let frame = self.frames[self.current_frame_index as usize]
-                .as_mut()
-                .unwrap();
-
-            for (_, location) in frame_buffer.locations() {
-                frame.update_instance(
-                    0,
-                    &InstanceData {
-                        model_matrix: nalgebra_glm::translate(&Mat4::identity(), location),
-                    },
-                );
-            }
-        };
-
-        pin_mut!(upload_meshes);
-        pin_mut!(update_instances);
-
-        parallel([upload_meshes, update_instances]).await;
+        for static_mesh in self.scene.static_meshes.values() {
+            frame.update_instance(
+                0,
+                &InstanceData {
+                    model_matrix: static_mesh.transform,
+                },
+            );
+        }
 
         unsafe {
             self.vulkan_info.device.device_wait_idle().unwrap();

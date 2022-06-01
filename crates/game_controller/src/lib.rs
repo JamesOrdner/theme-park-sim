@@ -5,6 +5,7 @@ use game_input::GameInputInterface;
 use game_resources::ResourceManager;
 use system_camera::CameraInterface;
 use system_interfaces::physics::Interface as PhysicsInterface;
+use system_network::{FrameData as NetworkSystem, Role};
 
 use crate::world::World;
 
@@ -31,33 +32,46 @@ impl GameController {
         frame_buffer: &mut SyncFrameBufferDelegate,
         input: GameInputInterface,
         camera: CameraInterface,
+        network: &mut NetworkSystem,
     ) {
         // temp
         let entity_id = EntityId::new(1);
 
         // object spawning
 
-        if event_delegate
-            .input_events()
-            .any(|event| matches!(event, InputEvent::MouseButton(true)))
-        {
-            if !self.world.contains(EntityId::new(1)) {
-                let entity_id = self.world.spawn();
-                event_delegate.push_game_event(GameEvent::Spawn(entity_id));
-                frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
-                    entity_id,
-                    resource: self.resource_manager.resource("sphere".to_string()),
-                });
-            } else {
-                self.world.despawn(entity_id);
-                event_delegate.push_game_event(GameEvent::Despawn(entity_id));
-                frame_buffer.despawn(entity_id);
+        let (mut game_event_writer, input_events) = event_delegate.input_events_mut();
+        for input_event in input_events {
+            match input_event {
+                InputEvent::MouseButton(true) => {
+                    if !self.world.contains(EntityId::new(1)) {
+                        let entity_id = self.world.spawn();
+                        game_event_writer.push_game_event(GameEvent::Spawn(entity_id));
+                        frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
+                            entity_id,
+                            resource: self.resource_manager.resource("sphere".to_string()),
+                        });
+                    } else {
+                        self.world.despawn(entity_id);
+                        game_event_writer.push_game_event(GameEvent::Despawn(entity_id));
+                        frame_buffer.despawn(entity_id);
+                    }
+                }
+                InputEvent::ServerBegin => {
+                    network.role = Role::Server;
+                }
+                InputEvent::ServerConnect => {
+                    network.role = Role::Client;
+                }
+                InputEvent::ServerDisconnect => {
+                    network.role = Role::Offline;
+                }
+                _ => {}
             }
         }
 
         // object placement
 
-        if self.world.contains(entity_id) {
+        if self.world.contains(entity_id) && network.role != Role::Client {
             let origin = camera.location();
             let orientation = camera.deproject(&input.cursor_position_ndc());
 
