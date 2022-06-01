@@ -27,14 +27,16 @@ impl FixedUpdate {
         let fixed_systems = self.systems.as_mut().unwrap();
 
         let audio = fixed_systems.audio.swap(&mut frame_systems.audio);
+        let network = fixed_systems.network.swap(&mut frame_systems.network);
         let static_mesh = fixed_systems
             .static_mesh
             .swap(&mut frame_systems.static_mesh);
 
         pin_mut!(audio);
+        pin_mut!(network);
         pin_mut!(static_mesh);
 
-        parallel([audio, static_mesh]).await;
+        parallel([audio, network, static_mesh]).await;
     }
 
     pub fn execute(&mut self, task_executor: &mut TaskExecutor) {

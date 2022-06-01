@@ -80,6 +80,7 @@ pub struct GameInput {
     camera_rotating: bool,
     camera_rotation: Vec2,
     camera_zoom: f32,
+    server_state: Option<InputEvent>,
 }
 
 impl GameInput {
@@ -92,6 +93,7 @@ impl GameInput {
             camera_rotating: false,
             camera_rotation: Default::default(),
             camera_zoom: Default::default(),
+            server_state: None,
         }
     }
 
@@ -133,6 +135,15 @@ impl GameInput {
                         VirtualKeyCode::Space => {
                             self.camera_rotating = pressed;
                         }
+                        VirtualKeyCode::Key1 => {
+                            self.server_state = Some(InputEvent::ServerBegin);
+                        }
+                        VirtualKeyCode::Key2 => {
+                            self.server_state = Some(InputEvent::ServerConnect);
+                        }
+                        VirtualKeyCode::Key3 => {
+                            self.server_state = Some(InputEvent::ServerDisconnect);
+                        }
                         _ => {}
                     }
                 }
@@ -170,6 +181,10 @@ impl GameInput {
 
         if let Some(left_mouse_button) = self.left_mouse_button.updated() {
             event_delegate.push_input_event(InputEvent::MouseButton(*left_mouse_button));
+        }
+
+        if let Some(server_state) = self.server_state.take() {
+            event_delegate.push_input_event(server_state);
         }
 
         // axis events are updated every frame

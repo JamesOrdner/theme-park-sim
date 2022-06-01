@@ -72,11 +72,12 @@ pub struct UpdateBufferRef<'a> {
 
 impl<'a> UpdateBufferRef<'a> {
     #[inline]
-    pub fn locations(&self) -> impl Iterator<Item = &EntityData<Vec3>> {
+    pub fn locations(&self) -> impl Iterator<Item = (EntityId, &Vec3)> {
         let index = self.read_index();
         self.update_buffers
             .iter()
             .flat_map(move |buffers| &buffers[index].locations)
+            .map(|entity_data| (entity_data.entity_id, &entity_data.data))
     }
 
     #[inline]

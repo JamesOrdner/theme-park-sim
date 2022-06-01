@@ -27,11 +27,22 @@ impl FrameData {
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
-        _frame_buffer: &AsyncFrameBufferDelegate<'_>,
+        frame_buffer: &AsyncFrameBufferDelegate<'_>,
     ) {
         // update system data
 
         let mut data = self.shared_data.write_single().await;
+
+        let frame_buffer_writer = frame_buffer.writer();
+
+        for (entity_id, modified_location) in &self.modified_entities {
+            if let Some(location) = data.locations.get_mut(*entity_id) {
+                *location = *modified_location;
+                frame_buffer_writer.push_location(*entity_id, *modified_location);
+            }
+        }
+
+        self.modified_entities.clear();
 
         for game_event in event_delegate.game_events() {
             match game_event {
@@ -43,23 +54,10 @@ impl FrameData {
                 }
                 GameEvent::StaticMeshLocation(entity_id, location) => {
                     data.locations[*entity_id] = *location;
+                    self.modified_entities.insert(*entity_id, *location);
                 }
             }
         }
-
-        for (modified_entity_id, modified_location) in &self.modified_entities {
-            if let Some(location) = data.locations.get_mut(*modified_entity_id) {
-                *location = *modified_location;
-            }
-        }
-
-        drop(data);
-
-        // update frame buffer
-
-        // notify other systems of changes
-
-        self.modified_entities.clear();
     }
 }
 
@@ -91,7 +89,7 @@ impl FixedData {
         self.modified_entities.extend(
             update_buffer
                 .locations()
-                .map(|location| (location.entity_id, location.data)),
+                .map(|(entity_id, location)| (entity_id, *location)),
         );
     }
 }

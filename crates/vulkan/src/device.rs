@@ -24,18 +24,15 @@ impl Device {
 
         // select physical device
 
-        let physical_device = unsafe {
+        let (physical_device, queue_families_info) = unsafe {
             select_physical_device(instance, &required_device_extensions)?
                 .ok_or_else(|| Error::msg("no suitable physical device found"))?
         };
 
         // create logical device
 
-        let device_queue_families_info =
-            physical_device_queue_families_info(instance, physical_device)?
-                .ok_or_else(|| Error::msg("no suitable physical device found"))?;
         let queue_priorities = [0.0];
-        let queue_create_infos: SmallVec<[_; 3]> = device_queue_families_info
+        let queue_create_infos: SmallVec<[_; 3]> = queue_families_info
             .unique_family_indices()
             .into_iter()
             .map(|queue_family_index| {
@@ -62,28 +59,25 @@ impl Device {
 
         // retrieve queue handles
 
-        let graphics_queue = unsafe {
-            device_loader.get_device_queue(device_queue_families_info.graphics_family_index, 0)
-        };
-        let present_queue = unsafe {
-            device_loader.get_device_queue(device_queue_families_info.present_family_index, 0)
-        };
-        let transfer_queue = unsafe {
-            device_loader.get_device_queue(device_queue_families_info.transfer_family_index, 0)
-        };
+        let graphics_queue =
+            unsafe { device_loader.get_device_queue(queue_families_info.graphics_family_index, 0) };
+        let present_queue =
+            unsafe { device_loader.get_device_queue(queue_families_info.present_family_index, 0) };
+        let transfer_queue =
+            unsafe { device_loader.get_device_queue(queue_families_info.transfer_family_index, 0) };
 
         let queues = Queues {
             graphics: Queue {
                 queue: graphics_queue,
-                family_index: device_queue_families_info.graphics_family_index,
+                family_index: queue_families_info.graphics_family_index,
             },
             present: Queue {
                 queue: present_queue,
-                family_index: device_queue_families_info.present_family_index,
+                family_index: queue_families_info.present_family_index,
             },
             transfer: Queue {
                 queue: transfer_queue,
-                family_index: device_queue_families_info.transfer_family_index,
+                family_index: queue_families_info.transfer_family_index,
             },
         };
 
@@ -122,6 +116,7 @@ pub struct Queues {
     pub transfer: Queue,
 }
 
+#[derive(Default)]
 struct QueueFamiliesInfo {
     graphics_family_index: u32,
     present_family_index: u32,
@@ -148,8 +143,8 @@ impl QueueFamiliesInfo {
 unsafe fn select_physical_device(
     instance: &Instance,
     required_device_extensions: &[*const c_char],
-) -> Result<Option<vk::PhysicalDevice>> {
-    let mut selected_physical_device = None;
+) -> Result<Option<(vk::PhysicalDevice, QueueFamiliesInfo)>> {
+    let mut selected_device_info = None;
 
     for physical_device in instance.enumerate_physical_devices(None).result()? {
         let device_extensions = instance
@@ -169,6 +164,23 @@ unsafe fn select_physical_device(
             continue;
         }
 
+        let queue_families_info =
+            match physical_device_queue_families_info(instance, physical_device)? {
+                Some(info) => info,
+                None => continue,
+            };
+
+        if !instance
+            .get_physical_device_surface_support_khr(
+                physical_device,
+                queue_families_info.present_family_index,
+                instance.surface,
+            )
+            .result()?
+        {
+            continue;
+        }
+
         let surface_formats = instance
             .get_physical_device_surface_formats_khr(physical_device, instance.surface, None)
             .result()?;
@@ -181,25 +193,18 @@ unsafe fn select_physical_device(
             continue;
         }
 
-        if physical_device_queue_families_info(instance, physical_device)?.is_none() {
-            continue;
-        }
-
-        match selected_physical_device {
-            None => {
-                selected_physical_device = Some(physical_device);
-            }
-            Some(_) => {
-                // prefer discrete device
-                let device_properties = instance.get_physical_device_properties(physical_device);
-                if device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
-                    selected_physical_device = Some(physical_device);
-                }
+        if selected_device_info.is_none() {
+            selected_device_info = Some((physical_device, queue_families_info));
+        } else {
+            // prefer discrete device
+            let device_properties = instance.get_physical_device_properties(physical_device);
+            if device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
+                selected_device_info = Some((physical_device, queue_families_info));
             }
         }
     }
 
-    Ok(selected_physical_device)
+    Ok(selected_device_info)
 }
 
 fn physical_device_queue_families_info(

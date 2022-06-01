@@ -9,6 +9,7 @@ pub struct FrameUpdate {
     pub audio: system_audio::FrameData,
     pub camera: system_camera::FrameData,
     pub navigation: system_navigation::FrameData,
+    pub network: system_network::FrameData,
     pub static_mesh: system_static_mesh::FrameData,
 }
 
@@ -31,6 +32,7 @@ impl FrameUpdate {
             audio: Default::default(),
             camera,
             navigation,
+            network: Default::default(),
             static_mesh,
         }
     }

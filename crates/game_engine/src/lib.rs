@@ -171,6 +171,7 @@ impl GameEngine {
             &mut frame_buffer,
             self.input.interface(),
             self.frame_update.camera.interface(),
+            &mut self.frame_update.network,
         );
     }
 
