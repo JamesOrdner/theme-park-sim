@@ -2,3 +2,8 @@
 name = "update_buffer"
 version = "0.0.0"
 edition = "2021"
+
+[dependencies]
+nalgebra-glm = "0.16.0"
+
+game_entity = { path = "../game_entity" }

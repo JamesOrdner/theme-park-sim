@@ -1,12 +1,40 @@
 use std::f32::consts::FRAC_PI_2;
 
-use event::{AsyncEventDelegate, FrameEvent, InputEvent};
-use frame_buffer::{CameraInfo, FrameBufferWriter};
-use nalgebra_glm::{rotate_vec3, vec3, Vec3};
-use system_interfaces::static_mesh::Interface as StaticMeshInterface;
+use event::{InputEvent, SyncEventDelegate};
+use frame_buffer::{CameraInfo, SyncFrameBufferDelegate};
+use nalgebra_glm::{inverse, look_at, perspective, rotate_vec3, vec3, vec4, Vec2, Vec3};
+use system_interfaces::physics::Interface as PhysicsInterface;
+
+const NEAR_PLANE: f32 = 0.01;
+const FAR_PLANE: f32 = 50.0;
+
+#[derive(Clone, Copy)]
+pub struct CameraInterface<'a> {
+    inner: &'a FrameData,
+}
+
+impl<'a> CameraInterface<'a> {
+    pub fn location(&self) -> &Vec3 {
+        &self.inner.location
+    }
+
+    /// Returns orientation
+    pub fn deproject(&self, ndc: &Vec2) -> Vec3 {
+        let orientation = (self.inner.origin - self.inner.location).normalize();
+        let proj = perspective(self.inner.aspect, 1.0, NEAR_PLANE, FAR_PLANE);
+        let view = look_at(&Vec3::zeros(), &orientation, &vec3(0.0, 1.0, 0.0));
+        let vp_inv = inverse(&(proj * view));
+        let screen = vec4(-ndc.x, -ndc.y, 1.0, 1.0);
+
+        (vp_inv * screen).xyz().normalize()
+    }
+}
 
 pub struct FrameData {
-    static_mesh_interface: StaticMeshInterface,
+    physics: PhysicsInterface,
+    aspect: f32,
+    fov: f32,
+    location: Vec3,
     origin: Vec3,
     origin_vel: Vec3,
     azimuth_angle: f32,
@@ -25,9 +53,14 @@ const ROTATE_DAMPING_FACTOR: f32 = 0.00001;
 const ZOOM_DAMPING_FACTOR: f32 = 0.000001;
 
 impl FrameData {
-    pub fn new(static_mesh_interface: StaticMeshInterface) -> Self {
+    pub fn new(window_width: u32, window_height: u32, physics: PhysicsInterface) -> Self {
+        let aspect = window_width as f32 / window_height as f32;
+
         Self {
-            static_mesh_interface,
+            physics,
+            aspect,
+            fov: 1.0,
+            location: Default::default(),
             origin: Default::default(),
             origin_vel: Default::default(),
             azimuth_angle: 0.0,
@@ -39,10 +72,18 @@ impl FrameData {
         }
     }
 
-    pub async fn update(
+    pub fn interface(&self) -> CameraInterface {
+        CameraInterface { inner: self }
+    }
+
+    pub fn window_resized(&mut self, width: u32, height: u32) {
+        self.aspect = width as f32 / height as f32;
+    }
+
+    pub fn update(
         &mut self,
-        event_delegate: &AsyncEventDelegate<'_>,
-        frame_buffer: &FrameBufferWriter<'_>,
+        event_delegate: &SyncEventDelegate,
+        frame_buffer: &mut SyncFrameBufferDelegate,
         delta_time: f32,
     ) {
         for input_event in event_delegate.input_events() {
@@ -92,24 +133,25 @@ impl FrameData {
         self.origin += self.origin_vel * MOVE_SPEED * y_scaling * delta_time;
         self.origin_vel *= MOVE_DAMPING_FACTOR.powf(delta_time);
 
-        let location = self.origin + location;
-
+        let mut location = self.origin + location;
         let orientation = (self.origin - location).normalize();
 
-        // faux ensure camera isn't colliding
-        self.static_mesh_interface
-            .raycast(&self.origin, &-orientation)
-            .await;
-
-        event_delegate.push_frame_event(FrameEvent::CameraLocation(location));
-        event_delegate.push_frame_event(FrameEvent::CameraOrientation(orientation));
+        // camera collision
+        if let Some(hit_location) = self.physics.raycast(&self.origin, &-orientation) {
+            location = hit_location;
+        }
 
         let camera_info = CameraInfo {
             focus: self.origin,
             location,
             up: vec3(0.0, 1.0, 0.0),
+            fov: self.fov,
+            near_plane: NEAR_PLANE,
+            far_plane: FAR_PLANE,
         };
 
         frame_buffer.set_camera_info(camera_info);
+
+        self.location = location;
     }
 }

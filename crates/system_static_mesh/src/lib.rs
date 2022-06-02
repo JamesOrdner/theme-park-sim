@@ -1,10 +1,11 @@
 use std::mem;
 
 use event::{AsyncEventDelegate, GameEvent};
-use frame_buffer::FrameBufferWriter;
+use frame_buffer::AsyncFrameBufferDelegate;
+use game_entity::EntityMap;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
-use update_buffer::UpdateBufferRef;
+use update_buffer::StaticMeshUpdateBufferRef;
 
 pub fn shared_data() -> SharedData {
     Default::default()
@@ -12,51 +13,63 @@ pub fn shared_data() -> SharedData {
 
 pub struct FrameData {
     shared_data: SharedData,
-    modified_entities: Vec<Vec3>,
+    modified_entities: EntityMap<Vec3>,
+    swapped: bool,
 }
 
 impl FrameData {
     pub fn new(shared_data: SharedData) -> Self {
         Self {
             shared_data,
-            modified_entities: Vec::new(),
+            modified_entities: EntityMap::new(),
+            swapped: false,
         }
     }
 
     pub async fn update(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
-        frame_buffer: &FrameBufferWriter<'_>,
+        frame_buffer: &AsyncFrameBufferDelegate<'_>,
     ) {
-        for spawn_id in event_delegate
-            .game_events()
-            .filter_map(|event| match event {
-                GameEvent::Spawn(id) => Some(id),
-                _ => None,
-            })
-        {
-            println!("spawning {}", spawn_id.get());
+        // update system data
+
+        let mut data = self.shared_data.write_single().await;
+
+        if self.swapped {
+            self.swapped = false;
+
+            let frame_buffer_writer = frame_buffer.writer();
+
+            for (entity_id, modified_location) in &self.modified_entities {
+                if let Some(location) = data.locations.get_mut(*entity_id) {
+                    *location = *modified_location;
+                    frame_buffer_writer.push_location(*entity_id, *modified_location);
+                }
+            }
+
+            self.modified_entities.clear();
         }
 
-        if let Some(entity) = self.modified_entities.first() {
-            frame_buffer.push_location(*entity);
-
-            let mut data = self.shared_data.write_single().await;
-            if let Some(location) = data.locations.first_mut() {
-                *location = *entity;
-            } else {
-                data.locations.push(*entity);
+        for game_event in event_delegate.game_events() {
+            match game_event {
+                GameEvent::Spawn(entity_id) => {
+                    data.locations.insert(*entity_id, Vec3::zeros());
+                }
+                GameEvent::Despawn(entity_id) => {
+                    data.locations.remove(*entity_id);
+                }
+                GameEvent::StaticMeshLocation(entity_id, location) => {
+                    data.locations[*entity_id] = *location;
+                    self.modified_entities.insert(*entity_id, *location);
+                }
             }
         }
-
-        self.modified_entities.clear();
     }
 }
 
 #[derive(Default)]
 pub struct FixedData {
-    location: Vec3,
-    modified_entities: Vec<Vec3>,
+    modified_entities: EntityMap<Vec3>,
 }
 
 impl FixedData {
@@ -67,18 +80,24 @@ impl FixedData {
             &mut frame_data.modified_entities,
         );
 
-        self.modified_entities.clear();
+        frame_data.swapped = true;
     }
 
-    pub async fn update(&mut self, _update_buffer: UpdateBufferRef<'_>) {
-        self.location.x += 1.0;
-        self.location.y += 1.0;
-        self.location.z += 1.0;
+    pub async fn update(&mut self, update_buffer: StaticMeshUpdateBufferRef<'_>) {
+        // notify other of system changes
 
-        if let Some(entity) = self.modified_entities.first_mut() {
-            *entity = self.location;
-        } else {
-            self.modified_entities.push(self.location);
+        for (entity_id, location) in &self.modified_entities {
+            update_buffer.push_location(*entity_id, *location);
         }
+
+        self.modified_entities.clear();
+
+        // update system from other changes
+
+        self.modified_entities.extend(
+            update_buffer
+                .locations()
+                .map(|(entity_id, location)| (entity_id, *location)),
+        );
     }
 }

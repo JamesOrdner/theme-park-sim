@@ -10,10 +10,8 @@ use erupt::{
 };
 use winit::window::Window;
 
-use crate::cstr;
-
 #[cfg(debug_assertions)]
-const LAYER_NAMES: [*const c_char; 1] = [cstr!("VK_LAYER_KHRONOS_validation")];
+const LAYER_NAMES: [*const c_char; 1] = [crate::cstr!("VK_LAYER_KHRONOS_validation")];
 #[cfg(not(debug_assertions))]
 const LAYER_NAMES: [*const c_char; 0] = [];
 
