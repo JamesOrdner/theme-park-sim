@@ -98,6 +98,7 @@ impl Metal {
             }
         }
 
+        #[repr(C)]
         #[allow(unused)]
         struct ProjView {
             proj: Mat4,
@@ -130,38 +131,39 @@ impl Metal {
             color_attachment.set_clear_color(MTLClearColor::new(0.0, 0.0, 0.0, 1.0));
 
             let cmd_buf = self.queue.new_command_buffer();
-
             let encoder = cmd_buf.new_render_command_encoder(descriptor);
-            encoder.set_render_pipeline_state(&self.pipeline.state);
-            encoder.set_vertex_bytes(
-                1,
-                mem::size_of_val(&proj_view) as u64,
-                &proj_view as *const _ as *const _,
-            );
 
-            for static_mesh in self.static_meshes.values() {
-                let model = translate(&Mat4::identity(), &static_mesh.location);
+            if !self.static_meshes.is_empty() {
+                encoder.set_render_pipeline_state(&self.pipeline.state);
                 encoder.set_vertex_bytes(
-                    2,
-                    mem::size_of_val(&model) as u64,
-                    &model as *const _ as *const _,
+                    1,
+                    mem::size_of_val(&proj_view) as u64,
+                    &proj_view as *const _ as *const _,
                 );
-                encoder.set_vertex_buffer(
-                    0,
-                    Some(&static_mesh.buffer),
-                    static_mesh.locations_offset,
-                );
-                encoder.draw_indexed_primitives(
-                    MTLPrimitiveType::Triangle,
-                    static_mesh.locations_offset / 2,
-                    MTLIndexType::UInt16,
-                    &static_mesh.buffer,
-                    0,
-                );
+
+                for static_mesh in self.static_meshes.values() {
+                    let model = translate(&Mat4::identity(), &static_mesh.location);
+                    encoder.set_vertex_bytes(
+                        2,
+                        mem::size_of_val(&model) as u64,
+                        &model as *const _ as *const _,
+                    );
+                    encoder.set_vertex_buffer(
+                        0,
+                        Some(&static_mesh.buffer),
+                        static_mesh.locations_offset,
+                    );
+                    encoder.draw_indexed_primitives(
+                        MTLPrimitiveType::Triangle,
+                        3,
+                        MTLIndexType::UInt16,
+                        &static_mesh.buffer,
+                        0,
+                    );
+                }
             }
 
             encoder.end_encoding();
-
             cmd_buf.present_drawable(drawable);
             cmd_buf.commit();
         });
@@ -171,7 +173,8 @@ impl Metal {
         let indices = [0_u16, 1, 2];
         let vertex_data = [0.0_f32, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
 
-        let locations_offset = mem::size_of_val(&indices);
+        // align vertex locations to 16 bytes
+        let locations_offset = (mem::size_of_val(&indices) + 15) & !15;
         let size = (locations_offset + mem::size_of_val(&vertex_data)) as u64;
 
         let buffer = self
@@ -184,8 +187,8 @@ impl Metal {
             let indices_slice = slice::from_raw_parts_mut(data as *mut u16, indices.len());
             indices_slice.copy_from_slice(&indices);
 
-            let vertex_ptr = (data as *mut u16).add(indices.len());
-            let vertex_slice = slice::from_raw_parts_mut(vertex_ptr as *mut f32, vertex_data.len());
+            let data = (data as *mut u8).add(locations_offset);
+            let vertex_slice = slice::from_raw_parts_mut(data as *mut f32, vertex_data.len());
             vertex_slice.copy_from_slice(&vertex_data);
         }
 
