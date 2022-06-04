@@ -11,7 +11,7 @@ mod server;
 const SERVER_ADDR: &str = "127.0.0.1:12351";
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
     Offline,
     Client,

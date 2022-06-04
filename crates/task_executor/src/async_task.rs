@@ -3,17 +3,15 @@ use std::{
     future::Future,
     mem::{self, MaybeUninit},
     pin::Pin,
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
 };
 
-use spin::mutex::Mutex as SpinMutex;
-
-use crate::{ChannelMessage, Task, TaskJoinHandle, TASK_SENDER};
+use crate::{AtomicUsize, ChannelMessage, Task, TASK_SENDER};
 
 pub struct AsyncTaskHandle<T> {
     _future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-    join_handle: Pin<Box<SpinMutex<TaskJoinHandle>>>,
-    _task: Pin<Box<SpinMutex<Task>>>,
+    join_handle: Pin<Box<AtomicUsize>>,
+    _task: Pin<Box<Task>>,
     result: Arc<TaskResultWrapper<T>>,
 }
 
@@ -34,7 +32,7 @@ impl<T> Default for TaskResultWrapper<T> {
 
 impl<T> AsyncTaskHandle<T> {
     pub fn result(self) -> Result<T, Self> {
-        if self.join_handle.lock().done {
+        if self.join_handle.load(Ordering::Acquire) & 1 == 1 {
             match Arc::try_unwrap(self.result) {
                 Ok(result) => unsafe { Ok(result.inner.into_inner().assume_init()) },
                 Err(_) => panic!(),
@@ -66,20 +64,19 @@ where
         })
     };
 
-    let join_handle = Box::pin(SpinMutex::new(TaskJoinHandle::default()));
+    let join_handle = Box::pin(AtomicUsize::default());
 
-    let join_handle_ref: Pin<&SpinMutex<TaskJoinHandle>> = join_handle.as_ref();
-    let join_handle_ref: Pin<&'static SpinMutex<TaskJoinHandle>> =
-        unsafe { mem::transmute(join_handle_ref) };
+    let join_handle_ref: Pin<&AtomicUsize> = join_handle.as_ref();
+    let join_handle_ref: Pin<&'static AtomicUsize> = unsafe { mem::transmute(join_handle_ref) };
 
     let task = unsafe {
         let future: Pin<&mut dyn Future<Output = ()>> = future.as_mut();
         let future: Pin<&'static mut (dyn Future<Output = ()> + Send)> = mem::transmute(future);
-        Box::pin(SpinMutex::new(Task::new(future, join_handle_ref)))
+        Box::pin(Task::new(future, join_handle_ref))
     };
 
-    let task_ref: Pin<&SpinMutex<Task>> = task.as_ref();
-    let task_ref: Pin<&'static SpinMutex<Task>> = unsafe { mem::transmute(task_ref) };
+    let task_ref: Pin<&Task> = task.as_ref();
+    let task_ref: Pin<&'static Task> = unsafe { mem::transmute(task_ref) };
 
     // begin execution of task
     TASK_SENDER.with(|sender| {
