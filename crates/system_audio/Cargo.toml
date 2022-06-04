@@ -4,10 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+atomic_float = "0.1.0"
 cpal = "0.13.5"
-log = "0.4.16"
-nalgebra-glm = "0.16.0"
-ringbuf = "0.2.7"
 
 frame_buffer = { path = "../frame_buffer" }
-game_system = { path = "../game_system" }

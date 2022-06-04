@@ -1,28 +1,20 @@
-use std::{cmp::min, f32::consts::TAU, slice};
+use std::{
+    cmp::min,
+    f32::consts::TAU,
+    iter::zip,
+    slice,
+    sync::{atomic::Ordering, Arc},
+};
 
+use atomic_float::AtomicF32;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    BufferSize, SampleFormat, SampleRate, Stream, SupportedBufferSize,
+    BufferSize, FrameCount, SampleFormat, SampleRate, Stream, SupportedBufferSize,
 };
 use frame_buffer::AsyncFrameBufferDelegate;
-use game_system::FIXED_TIMESTEP;
-use nalgebra_glm::Vec3;
-use ringbuf::{Consumer, Producer, RingBuffer};
 
-#[derive(Default)]
-pub struct FrameData {
-    camera_location: Vec3,
-    camera_orientation: Vec3,
-}
-
-impl FrameData {
-    pub async fn update(&mut self, frame_buffer: &AsyncFrameBufferDelegate<'_>) {
-        let frame_buffer = frame_buffer.reader();
-        let camera_info = frame_buffer.camera_info();
-        self.camera_location = camera_info.location;
-        self.camera_orientation = (camera_info.focus - camera_info.location).normalize();
-    }
-}
+const PREFERRED_SAMPLE_RATE: u32 = 48000;
+const PREFERRED_BUFFER_LEN: FrameCount = 512;
 
 /// Wrapper to allow cpal::Stream to be Send
 struct SendStream(Stream);
@@ -31,17 +23,17 @@ struct SendStream(Stream);
 #[cfg(not(target_os = "android"))]
 unsafe impl Send for SendStream {}
 
-pub struct FixedData {
-    sample_rate: u32,
-    audio_producer: Producer<[f32; 2]>,
-    phase: f32,
-    swap_index: bool,
-    camera_location: [Vec3; 2],
-    camera_orientation: [Vec3; 2],
+#[derive(Default)]
+struct SharedAudioData {
+    channel_gains: [AtomicF32; 2],
+}
+
+pub struct FrameData {
+    audio_data: Arc<SharedAudioData>,
     _stream: SendStream,
 }
 
-impl Default for FixedData {
+impl Default for FrameData {
     fn default() -> Self {
         let host = cpal::default_host();
         let device = host.default_output_device().expect("no audio device");
@@ -53,25 +45,22 @@ impl Default for FixedData {
             })
             .expect("no supported audio device");
 
-        let sample_rate = min(config.max_sample_rate().0, 48000);
+        let sample_rate = min(config.max_sample_rate().0, PREFERRED_SAMPLE_RATE);
+
         let buffer_size = match config.buffer_size() {
-            SupportedBufferSize::Range { min, max } => BufferSize::Fixed(512.clamp(*min, *max)),
+            SupportedBufferSize::Range { min, max } => {
+                BufferSize::Fixed(PREFERRED_BUFFER_LEN.clamp(*min, *max))
+            }
             SupportedBufferSize::Unknown => BufferSize::Default,
         };
-
-        let buffer_len = match buffer_size {
-            BufferSize::Default => 480, // best guess, windows defaults to 480
-            BufferSize::Fixed(len) => len,
-        };
-        // we always want to have FIXED_TIMESTEP * buffer_size ready to play
-        let ringbuf_len = FIXED_TIMESTEP.as_millis() as u32 * sample_rate / 1000 + buffer_len;
-        let (audio_producer, audio_consumer) = RingBuffer::new(ringbuf_len as usize).split();
-
-        let mut audio_player = AudioPlayer::new(audio_consumer);
 
         let mut config = config.with_sample_rate(SampleRate(sample_rate)).config();
         config.channels = 2;
         config.buffer_size = buffer_size;
+
+        let audio_data = Arc::new(SharedAudioData::default());
+        let mut audio_player = AudioPlayer::new(audio_data.clone(), sample_rate as f32);
+
         let stream = device
             .build_output_stream(
                 &config,
@@ -83,79 +72,74 @@ impl Default for FixedData {
         stream.play().unwrap();
 
         Self {
-            sample_rate,
-            audio_producer,
-            phase: 0.0,
-            swap_index: false,
-            camera_location: Default::default(),
-            camera_orientation: Default::default(),
+            audio_data,
             _stream: SendStream(stream),
         }
     }
 }
 
-impl FixedData {
-    pub async fn swap(&mut self, frame_data: &mut FrameData) {
-        self.swap_index = !self.swap_index;
+impl FrameData {
+    pub async fn update(&mut self, frame_buffer: &AsyncFrameBufferDelegate<'_>) {
+        let frame_buffer = frame_buffer.reader();
+        let camera_info = frame_buffer.camera_info();
+        let camera_orientation = (camera_info.focus - camera_info.location).normalize();
 
-        let index = self.swap_index as usize;
-        self.camera_location[index] = frame_data.camera_location;
-        self.camera_orientation[index] = frame_data.camera_orientation;
-    }
+        let dist = 0.5_f32.powf(camera_info.location.norm());
+        let pan = camera_orientation
+            .cross(&camera_info.location.normalize())
+            .y;
 
-    pub async fn update(&mut self) {
-        let index_start = !self.swap_index as usize;
-        let index_end = self.swap_index as usize;
-
-        let gain = [index_start, index_end].map(|i| {
-            let dist = 0.5_f32.powf(self.camera_location[i].norm());
-            let pan = self.camera_orientation[i]
-                .cross(&self.camera_location[i].normalize())
-                .y;
-
-            [dist * (pan + 1.0) * 0.5, dist * (-pan + 1.0) * 0.5]
-        });
-
-        let phase_delta = 880.0 * TAU / self.sample_rate as f32;
-        let num_frames = self.audio_producer.remaining();
-
-        for i in 0..num_frames {
-            let alpha = i as f32 / num_frames as f32;
-            let val = self.phase.sin();
-            let frame = [0, 1]
-                .map(|i| gain[0][i] * (1.0 - alpha) + gain[1][i] * alpha)
-                .map(|gain| val * gain);
-            self.audio_producer.push(frame).unwrap();
-
-            self.phase += phase_delta;
-        }
-
-        self.phase %= TAU;
+        self.audio_data.channel_gains[0].store(dist * (pan + 1.0) * 0.5, Ordering::Relaxed);
+        self.audio_data.channel_gains[1].store(dist * (-pan + 1.0) * 0.5, Ordering::Relaxed);
     }
 }
 
 struct AudioPlayer {
-    audio_consumer: Consumer<[f32; 2]>,
+    audio_data: Arc<SharedAudioData>,
+    channel_gains: [f32; 2],
+    target_channel_gains: [f32; 2],
+    sample_rate: f32,
+    phase: f32,
 }
 
 impl AudioPlayer {
-    fn new(audio_consumer: Consumer<[f32; 2]>) -> Self {
-        Self { audio_consumer }
+    fn new(audio_data: Arc<SharedAudioData>, sample_rate: f32) -> Self {
+        Self {
+            audio_data,
+            channel_gains: Default::default(),
+            target_channel_gains: Default::default(),
+            sample_rate,
+            phase: 0.0,
+        }
     }
 
     fn data_callback(&mut self, buffer: &mut [f32]) {
-        let buffer = as_chunks_mut(buffer);
+        for (local_target, atomic_target) in zip(
+            &mut self.target_channel_gains,
+            &self.audio_data.channel_gains,
+        ) {
+            *local_target = atomic_target.load(Ordering::Relaxed);
+        }
 
-        let num_read = self.audio_consumer.pop_slice(buffer);
-        buffer[num_read..].fill([0.0; 2]);
+        let buffer = as_stereo_mut(buffer);
 
-        if num_read != buffer.len() {
-            log::warn!("audio running {} frames behind", buffer.len() - num_read);
+        let phase_delta = 880.0 * TAU / self.sample_rate;
+
+        for frame in buffer {
+            for (current, target) in zip(&mut self.channel_gains, &self.target_channel_gains) {
+                *current += (*target - *current) * 0.001;
+            }
+
+            let val = self.phase.sin();
+            self.phase += phase_delta;
+
+            frame[0] = val * self.channel_gains[0];
+            frame[1] = val * self.channel_gains[1];
         }
     }
 }
 
-fn as_chunks_mut(slice: &mut [f32]) -> &mut [[f32; 2]] {
+fn as_stereo_mut(slice: &mut [f32]) -> &mut [[f32; 2]] {
     debug_assert_eq!(slice.len() % 2, 0);
     let stereo_len = slice.len() / 2;
     // SAFETY: stereo_len * 2 is guaranteed to not exceed original slice len
