@@ -270,8 +270,8 @@ enum TaskStatus {
     UnableToPoll,
 }
 
-// We require at least an alignment of 2 so that the lower bit of the address may
-// act as a flag. This allows "done" and the waker to be set in a single atomic op
+// We require at least an alignment of 2 so that the lower bit of the pointer may act as a flag.
+// This allows "done" and the pointer to the parent task to be set in a single atomic operation.
 #[repr(align(2))]
 struct Task {
     future: UnsafeCell<Pin<&'static mut (dyn Future<Output = ()> + Send)>>,
