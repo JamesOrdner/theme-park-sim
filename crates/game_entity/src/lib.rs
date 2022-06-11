@@ -1,11 +1,12 @@
 use std::{
+    fmt::Display,
     iter::zip,
     num::NonZeroU32,
     ops::{Deref, Index, IndexMut, RangeBounds},
     slice,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EntityId(NonZeroU32);
 
 impl EntityId {
@@ -18,8 +19,20 @@ impl EntityId {
         return Self(unsafe { NonZeroU32::new_unchecked(val) });
     }
 
+    pub fn min() -> Self {
+        EntityId(NonZeroU32::new(1).unwrap())
+    }
+
+    pub fn max() -> Self {
+        EntityId(NonZeroU32::new(u32::MAX).unwrap())
+    }
+
     pub fn increment(&mut self) {
-        self.0 = unsafe { NonZeroU32::new_unchecked(self.0.get() + 1) };
+        self.0 = NonZeroU32::new(self.0.get() + 1).unwrap();
+    }
+
+    pub fn decrement(&mut self) {
+        self.0 = NonZeroU32::new(self.0.get() - 1).unwrap();
     }
 }
 
@@ -34,6 +47,12 @@ impl Deref for EntityId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Display for EntityId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

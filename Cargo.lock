@@ -1845,6 +1845,7 @@ name = "system_network"
 version = "0.0.0"
 dependencies = [
  "crossbeam-channel",
+ "event",
  "game_entity",
  "laminar",
  "log",

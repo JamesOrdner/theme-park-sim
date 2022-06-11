@@ -38,17 +38,21 @@ impl Data {
     }
 }
 
+/// Updates that the network system will read.
 #[derive(Default)]
 struct Network {
     locations: Vec<EntityData<Vec3>>,
+    spawned: Vec<EntityId>,
 }
 
 impl Network {
     fn clear(&mut self) {
         self.locations.clear();
+        self.spawned.clear();
     }
 }
 
+/// Updates that the static mesh system will read.
 #[derive(Default)]
 struct StaticMesh {
     locations: Vec<EntityData<Vec3>>,
@@ -138,6 +142,14 @@ impl<'a> NetworkUpdateBufferRef<'a> {
     }
 
     #[inline]
+    pub fn spawned(&self) -> impl Iterator<Item = &EntityId> {
+        let index = self.read_index();
+        self.update_buffers
+            .iter()
+            .flat_map(move |buffers| &buffers[index].network.spawned)
+    }
+
+    #[inline]
     pub fn push_location(&self, entity_id: EntityId, location: Vec3) {
         let index = self.write_index();
 
@@ -187,6 +199,16 @@ impl<'a> StaticMeshUpdateBufferRef<'a> {
                 .network
                 .locations
                 .push(EntityData::new(entity_id, location))
+        });
+    }
+
+    #[inline]
+    pub fn push_spawn(&self, entity_id: EntityId) {
+        let index = self.write_index();
+
+        UPDATE_BUFFER.with(|buffer| unsafe {
+            let buffer = &mut buffer.get().as_mut().unwrap_unchecked()[index];
+            buffer.network.spawned.push(entity_id)
         });
     }
 

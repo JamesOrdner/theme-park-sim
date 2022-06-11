@@ -25,6 +25,13 @@ pub enum InputEvent {
     ServerBegin,
     ServerConnect,
     ServerDisconnect,
+    Spawn,
+}
+
+#[derive(Clone, Copy)]
+pub enum NetworkEvent {
+    Spawn(EntityId),
+    Despawn(EntityId),
 }
 
 thread_local! {
@@ -47,8 +54,22 @@ impl SyncEventDelegate<'_> {
     }
 
     #[inline]
+    pub fn push_network_event(&mut self, event: NetworkEvent) {
+        self.event_manager.network_event_buffer.push(event);
+    }
+
+    #[inline]
     pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
+    }
+
+    #[inline]
+    pub fn network_events_mut(
+        &mut self,
+    ) -> (SyncGameEventWriter, impl Iterator<Item = &NetworkEvent>) {
+        let game_event_writer = SyncGameEventWriter(&mut self.event_manager.game_event_buffer);
+        let network_events = self.event_manager.network_event_buffer.iter();
+        (game_event_writer, network_events)
     }
 
     #[inline]
@@ -120,6 +141,7 @@ pub struct EventManager {
     event_buffers: Vec<[Vec<FrameEvent>; 2]>,
     game_event_buffer: Vec<GameEvent>,
     input_event_buffer: Vec<InputEvent>,
+    network_event_buffer: Vec<NetworkEvent>,
     swap_index: bool,
 }
 
@@ -129,6 +151,7 @@ impl EventManager {
             event_buffers: vec![Default::default(); thread_count.get()],
             game_event_buffer: Vec::new(),
             input_event_buffer: Vec::new(),
+            network_event_buffer: Vec::new(),
             swap_index: false,
         }
     }
@@ -159,6 +182,7 @@ impl EventManager {
 
         self.game_event_buffer.clear();
         self.input_event_buffer.clear();
+        self.network_event_buffer.clear();
     }
 
     fn read_index(&self) -> usize {

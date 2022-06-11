@@ -1,3 +1,4 @@
+use event::SyncEventDelegate;
 use futures::pin_mut;
 use task_executor::{task::parallel, FixedTaskHandle, TaskExecutor};
 use update_buffer::UpdateBuffer;
@@ -23,10 +24,16 @@ impl FixedUpdate {
         }
     }
 
-    pub async fn swap(&mut self, frame_systems: &mut FrameUpdate) {
+    pub async fn swap(
+        &mut self,
+        frame_systems: &mut FrameUpdate,
+        event_delegate: &mut SyncEventDelegate<'_>,
+    ) {
         let fixed_systems = self.systems.as_mut().unwrap();
 
-        let network = fixed_systems.network.swap(&mut frame_systems.network);
+        let network = fixed_systems
+            .network
+            .swap(&mut frame_systems.network, event_delegate);
         let static_mesh = fixed_systems
             .static_mesh
             .swap(&mut frame_systems.static_mesh);

@@ -2,7 +2,7 @@ use std::mem;
 
 use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::AsyncFrameBufferDelegate;
-use game_entity::EntityMap;
+use game_entity::{EntityId, EntityMap};
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
 use update_buffer::StaticMeshUpdateBufferRef;
@@ -14,6 +14,7 @@ pub fn shared_data() -> SharedData {
 pub struct FrameData {
     shared_data: SharedData,
     modified_entities: EntityMap<Vec3>,
+    spawned: Vec<EntityId>,
     swapped: bool,
 }
 
@@ -22,6 +23,7 @@ impl FrameData {
         Self {
             shared_data,
             modified_entities: EntityMap::new(),
+            spawned: Vec::new(),
             swapped: false,
         }
     }
@@ -53,6 +55,7 @@ impl FrameData {
         for game_event in event_delegate.game_events() {
             match game_event {
                 GameEvent::Spawn(entity_id) => {
+                    self.spawned.push(*entity_id);
                     data.locations.insert(*entity_id, Vec3::zeros());
                 }
                 GameEvent::Despawn(entity_id) => {
@@ -70,6 +73,7 @@ impl FrameData {
 #[derive(Default)]
 pub struct FixedData {
     modified_entities: EntityMap<Vec3>,
+    spawned: Vec<EntityId>,
 }
 
 impl FixedData {
@@ -79,6 +83,8 @@ impl FixedData {
             &mut self.modified_entities,
             &mut frame_data.modified_entities,
         );
+
+        mem::swap(&mut self.spawned, &mut frame_data.spawned);
 
         frame_data.swapped = true;
     }
@@ -90,7 +96,12 @@ impl FixedData {
             update_buffer.push_location(*entity_id, *location);
         }
 
+        for entity_id in &self.spawned {
+            update_buffer.push_spawn(*entity_id);
+        }
+
         self.modified_entities.clear();
+        self.spawned.clear();
 
         // update system from other changes
 

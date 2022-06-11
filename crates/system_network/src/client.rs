@@ -9,12 +9,12 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, Sender};
-use game_entity::EntityId;
+use event::{NetworkEvent, SyncEventDelegate};
 use laminar::{Packet, Socket, SocketEvent};
 use update_buffer::NetworkUpdateBufferRef;
 
 use crate::{
-    packet::{Heartbeat, LocationRef, PacketRef},
+    packet::{Heartbeat, LocationRef, NetworkId, PacketRef, SpawnRef},
     POLL_INTERVAL, SERVER_ADDR,
 };
 
@@ -23,6 +23,7 @@ pub struct Client {
     sender: Sender<Packet>,
     receiver: Receiver<SocketEvent>,
     server_addr: SocketAddr,
+    spawned: Vec<NetworkId>,
 }
 
 impl Default for Client {
@@ -49,6 +50,7 @@ impl Default for Client {
             sender,
             receiver,
             server_addr,
+            spawned: Vec::new(),
         }
     }
 }
@@ -60,6 +62,14 @@ impl Drop for Client {
 }
 
 impl Client {
+    pub fn swap(&mut self, event_delegate: &mut SyncEventDelegate) {
+        for network_id in &self.spawned {
+            event_delegate.push_network_event(NetworkEvent::Spawn(network_id.entity_id()));
+        }
+
+        self.spawned.clear();
+    }
+
     pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
         // recv
 
@@ -84,13 +94,23 @@ impl Client {
     }
 
     fn recv(&mut self, packet: &Packet, update_buffer: NetworkUpdateBufferRef) {
-        if let PacketRef::Location(location) = PacketRef::from(packet.payload()) {
-            self.handle_location(location, update_buffer);
+        match PacketRef::from(packet.payload()) {
+            PacketRef::Location(location) => {
+                self.handle_location(location, update_buffer);
+            }
+            PacketRef::Spawn(spawn) => {
+                self.handle_spawn(spawn);
+            }
+            _ => {}
         }
     }
 
     fn handle_location(&mut self, location: LocationRef, update_buffer: NetworkUpdateBufferRef) {
-        let entity_id = EntityId::new(location.network_id().0 as u32);
-        update_buffer.push_location(entity_id, location.location());
+        update_buffer.push_location(location.network_id().entity_id(), location.location());
+    }
+
+    fn handle_spawn(&mut self, spawn: SpawnRef) {
+        println!("spawn NetworkId({})", spawn.network_id().get(),);
+        self.spawned.push(spawn.network_id());
     }
 }

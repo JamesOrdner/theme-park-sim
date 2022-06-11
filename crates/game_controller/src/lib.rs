@@ -1,8 +1,9 @@
-use event::{GameEvent, InputEvent, SyncEventDelegate};
+use event::{GameEvent, InputEvent, NetworkEvent, SyncEventDelegate};
 use frame_buffer::{SpawnedStaticMesh, SyncFrameBufferDelegate};
 use game_entity::EntityId;
 use game_input::GameInputInterface;
 use game_resources::ResourceManager;
+use nalgebra_glm::Vec3;
 use system_camera::CameraInterface;
 use system_interfaces::physics::Interface as PhysicsInterface;
 use system_network::{FrameData as NetworkSystem, Role};
@@ -15,6 +16,7 @@ pub struct GameController {
     physics: PhysicsInterface,
     resource_manager: ResourceManager,
     world: World,
+    placing_object: Option<EntityId>,
 }
 
 impl GameController {
@@ -23,6 +25,7 @@ impl GameController {
             physics,
             resource_manager: Default::default(),
             world: Default::default(),
+            placing_object: None,
         }
     }
 
@@ -34,26 +37,44 @@ impl GameController {
         camera: CameraInterface,
         network: &mut NetworkSystem,
     ) {
-        // temp
-        let entity_id = EntityId::new(1);
-
-        // object spawning
+        let (mut game_event_writer, network_events) = event_delegate.network_events_mut();
+        for network_event in network_events {
+            match network_event {
+                NetworkEvent::Spawn(entity_id) => {
+                    self.world.remote_spawn(*entity_id);
+                    game_event_writer.push_game_event(GameEvent::Spawn(*entity_id));
+                    frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
+                        entity_id: *entity_id,
+                        resource: self.resource_manager.resource("sphere".to_string()),
+                    });
+                }
+                NetworkEvent::Despawn(entity_id) => {
+                    game_event_writer.push_game_event(GameEvent::Despawn(*entity_id));
+                    frame_buffer.despawn(*entity_id);
+                }
+            }
+        }
 
         let (mut game_event_writer, input_events) = event_delegate.input_events_mut();
         for input_event in input_events {
             match input_event {
+                InputEvent::Spawn if self.placing_object.is_none() => {
+                    let entity_id = self.world.spawn_replicable();
+                    game_event_writer.push_game_event(GameEvent::Spawn(entity_id));
+                    frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
+                        entity_id,
+                        resource: self.resource_manager.resource("sphere".to_string()),
+                    });
+
+                    self.placing_object = Some(entity_id);
+                }
                 InputEvent::MouseButton(true) => {
-                    if !self.world.contains(EntityId::new(1)) {
-                        let entity_id = self.world.spawn();
-                        game_event_writer.push_game_event(GameEvent::Spawn(entity_id));
-                        frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
-                            entity_id,
-                            resource: self.resource_manager.resource("sphere".to_string()),
-                        });
-                    } else {
-                        self.world.despawn(entity_id);
-                        game_event_writer.push_game_event(GameEvent::Despawn(entity_id));
-                        frame_buffer.despawn(entity_id);
+                    if let Some(entity_id) = self.placing_object.take() {
+                        if let Some(location) = self.location_under_cursor(input, camera) {
+                            let event = GameEvent::StaticMeshLocation(entity_id, location);
+                            game_event_writer.push_game_event(event);
+                            frame_buffer.push_location(entity_id, location);
+                        }
                     }
                 }
                 InputEvent::ServerBegin => {
@@ -71,15 +92,23 @@ impl GameController {
 
         // object placement
 
-        if self.world.contains(entity_id) && network.role != Role::Client {
-            let origin = camera.location();
-            let orientation = camera.deproject(&input.cursor_position_ndc());
-
-            if let Some(hit_location) = self.physics.raycast(origin, &orientation) {
-                let event = GameEvent::StaticMeshLocation(entity_id, hit_location);
+        if let Some(entity_id) = &self.placing_object {
+            if let Some(hit_location) = self.location_under_cursor(input, camera) {
+                let event = GameEvent::StaticMeshLocation(*entity_id, hit_location);
                 event_delegate.push_game_event(event);
-                frame_buffer.push_location(entity_id, hit_location);
+                frame_buffer.push_location(*entity_id, hit_location);
             }
         }
+    }
+
+    fn location_under_cursor(
+        &self,
+        input: GameInputInterface,
+        camera: CameraInterface,
+    ) -> Option<Vec3> {
+        let origin = camera.location();
+        let orientation = camera.deproject(&input.cursor_position_ndc());
+
+        self.physics.raycast(origin, &orientation)
     }
 }

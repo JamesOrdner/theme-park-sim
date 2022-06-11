@@ -13,7 +13,7 @@ use laminar::{Packet, Socket, SocketEvent};
 use update_buffer::NetworkUpdateBufferRef;
 
 use crate::{
-    packet::{Connect, Heartbeat, Location, NetworkId},
+    packet::{Connect, Heartbeat, Location, Spawn},
     POLL_INTERVAL, SERVER_ADDR,
 };
 
@@ -58,6 +58,10 @@ impl Drop for Server {
 
 impl Server {
     pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
+        // read update buffer
+
+        self.update_state(update_buffer);
+
         // recv
 
         while let Ok(msg) = self.receiver.try_recv() {
@@ -69,11 +73,9 @@ impl Server {
             }
         }
 
-        if !self.connected_clients.is_empty() {
-            self.broadcast_all(&Heartbeat.serialize());
+        // heartbeat
 
-            self.update_locations(update_buffer);
-        }
+        self.broadcast_all_reliable_ordered(&Heartbeat.serialize());
     }
 
     fn connect(&mut self, addr: &SocketAddr) {
@@ -100,18 +102,35 @@ impl Server {
         }
     }
 
-    fn update_locations(&mut self, update_buffer: NetworkUpdateBufferRef) {
-        for (entity_id, location) in update_buffer.locations() {
-            let location = Location {
-                network_id: NetworkId(entity_id.get() as u16),
-                location: *location,
+    fn update_state(&mut self, update_buffer: NetworkUpdateBufferRef) {
+        for entity_id in update_buffer.spawned() {
+            let spawn_packet = Spawn {
+                network_id: entity_id.into(),
             };
 
-            self.broadcast_all(&location.serialize());
+            self.broadcast_all_reliable_ordered(&spawn_packet.serialize());
+        }
+
+        // update locations
+
+        update_buffer
+            .locations()
+            .map(|(entity_id, location)| Location {
+                network_id: entity_id.into(),
+                location: *location,
+            })
+            .for_each(|packet| self.broadcast_all_unreliable_sequenced(&packet.serialize()));
+    }
+
+    fn broadcast_all_reliable_ordered(&self, data: &[u8]) {
+        for client in &self.connected_clients {
+            self.sender
+                .send(Packet::reliable_ordered(*client, data.to_vec(), Some(0)))
+                .unwrap();
         }
     }
 
-    fn broadcast_all(&self, data: &[u8]) {
+    fn broadcast_all_unreliable_sequenced(&self, data: &[u8]) {
         for client in &self.connected_clients {
             self.sender
                 .send(Packet::unreliable_sequenced(

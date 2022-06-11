@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use event::SyncEventDelegate;
 use update_buffer::NetworkUpdateBufferRef;
 
 use self::{client::Client, server::Server};
@@ -59,8 +60,16 @@ pub struct FixedData {
 }
 
 impl FixedData {
-    pub async fn swap(&mut self, frame_data: &mut FrameData) {
+    pub async fn swap(
+        &mut self,
+        frame_data: &mut FrameData,
+        event_delegate: &mut SyncEventDelegate<'_>,
+    ) {
         self.target_role = frame_data.role;
+
+        if let RoleImpl::Client(client) = &mut self.role {
+            client.swap(event_delegate);
+        }
     }
 
     pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
