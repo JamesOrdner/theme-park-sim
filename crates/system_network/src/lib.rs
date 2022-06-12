@@ -35,31 +35,32 @@ pub struct FrameData {
 
 impl FrameData {
     pub async fn update(&mut self, event_delegate: &AsyncEventDelegate<'_>) {
-        if event_delegate
-            .game_events()
-            .any(|e| matches!(e, GameEvent::NetworkRoleServer))
-        {
-            self.update_impl = FrameUpdateImpl::Server(Default::default());
-        } else if event_delegate
-            .game_events()
-            .any(|e| matches!(e, GameEvent::NetworkRoleClient))
-        {
-            self.update_impl = FrameUpdateImpl::Client(Default::default());
-        } else if event_delegate
-            .game_events()
-            .any(|e| matches!(e, GameEvent::NetworkRoleOffline))
-        {
-            self.update_impl = FrameUpdateImpl::Offline;
+        use FrameUpdateImpl::*;
+
+        for event in event_delegate.game_events() {
+            use GameEvent::*;
+            match event {
+                NetworkRoleServer => {
+                    self.update_impl = Server(Default::default());
+                }
+                NetworkRoleClient => {
+                    self.update_impl = Client(Default::default());
+                }
+                NetworkRoleOffline => {
+                    self.update_impl = Offline;
+                }
+                _ => {}
+            }
         }
 
         match &mut self.update_impl {
-            FrameUpdateImpl::Server(frame_data) => {
+            Server(frame_data) => {
                 frame_data.update(event_delegate);
             }
-            FrameUpdateImpl::Client(frame_data) => {
+            Client(frame_data) => {
                 frame_data.update(event_delegate);
             }
-            FrameUpdateImpl::Offline => {}
+            Offline => {}
         }
     }
 }
@@ -122,14 +123,15 @@ impl FixedData {
     }
 
     pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
+        use FixedUpdateImpl::*;
         match &mut self.update_impl {
-            FixedUpdateImpl::Server(server) => {
+            Server(server) => {
                 server.update(update_buffer);
             }
-            FixedUpdateImpl::Client(client) => {
+            Client(client) => {
                 client.update(update_buffer);
             }
-            FixedUpdateImpl::Offline => {}
+            Offline => {}
         }
     }
 }
@@ -140,7 +142,7 @@ where
 {
     clients
         .into_iter()
-        .map(|client| Packet::reliable_ordered(*client, data.to_vec(), Some(0)))
+        .map(|client| Packet::reliable_ordered(*client, data.to_vec(), None))
         .for_each(|packet| sender.send(packet).unwrap());
 }
 
@@ -150,6 +152,6 @@ where
 {
     clients
         .into_iter()
-        .map(|client| Packet::unreliable_sequenced(*client, data.to_vec(), Some(0)))
+        .map(|client| Packet::unreliable_sequenced(*client, data.to_vec(), None))
         .for_each(|packet| sender.send(packet).unwrap());
 }

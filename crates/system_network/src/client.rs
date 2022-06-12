@@ -61,8 +61,8 @@ impl ClientFrameData {
             match game_event {
                 GameEvent::Spawn {
                     entity_id,
-                    replicable,
-                } if *replicable => {
+                    replicate: true,
+                } => {
                     self.swap_data.client_spawned.push(*entity_id);
                 }
                 GameEvent::Despawn(_) => todo!(),

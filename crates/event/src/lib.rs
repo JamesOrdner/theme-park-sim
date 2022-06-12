@@ -27,7 +27,7 @@ pub enum InputEvent {
 pub enum GameEvent {
     Spawn {
         entity_id: EntityId,
-        replicable: bool,
+        replicate: bool,
     },
     Despawn(EntityId),
     UpdateEntityId {

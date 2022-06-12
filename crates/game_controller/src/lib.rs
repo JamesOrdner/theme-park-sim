@@ -73,7 +73,7 @@ impl GameController {
                     self.world.remote_spawn(*entity_id);
                     game_event_writer.push_game_event(GameEvent::Spawn {
                         entity_id: *entity_id,
-                        replicable: false,
+                        replicate: false,
                     });
                     frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
                         entity_id: *entity_id,
@@ -90,7 +90,7 @@ impl GameController {
                     let replicable_id = self.world.spawn_replicable();
                     game_event_writer.push_game_event(GameEvent::Spawn {
                         entity_id: replicable_id,
-                        replicable: false,
+                        replicate: false,
                     });
                     frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
                         entity_id: replicable_id,
@@ -140,7 +140,7 @@ impl GameController {
 
                     game_event_writer.push_game_event(GameEvent::Spawn {
                         entity_id,
-                        replicable: true,
+                        replicate: true,
                     });
 
                     frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
