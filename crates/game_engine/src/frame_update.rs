@@ -55,12 +55,14 @@ impl FrameUpdate {
     ) {
         let audio = self.audio.update(frame_buffer);
         let navigation = self.navigation.update(event_delegate);
+        let network = self.network.update(event_delegate);
         let static_mesh = self.static_mesh.update(event_delegate, frame_buffer);
 
         pin_mut!(audio);
         pin_mut!(navigation);
+        pin_mut!(network);
         pin_mut!(static_mesh);
 
-        parallel([audio, navigation, static_mesh]).await;
+        parallel([audio, navigation, network, static_mesh]).await;
     }
 }

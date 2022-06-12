@@ -1,6 +1,10 @@
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
-use event::SyncEventDelegate;
+use client::ClientFrameData;
+use crossbeam_channel::Sender;
+use event::{AsyncEventDelegate, GameEvent};
+use laminar::Packet;
+use server::ServerFrameData;
 use update_buffer::NetworkUpdateBufferRef;
 
 use self::{client::Client, server::Server};
@@ -12,85 +16,140 @@ mod server;
 const SERVER_ADDR: &str = "127.0.0.1:12351";
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Role {
+enum FrameUpdateImpl {
+    Server(ServerFrameData),
+    Client(ClientFrameData),
     Offline,
-    Client,
-    Server,
 }
 
-impl Default for Role {
+impl Default for FrameUpdateImpl {
     fn default() -> Self {
         Self::Offline
-    }
-}
-
-enum RoleImpl {
-    Offline,
-    Client(Box<Client>),
-    Server(Box<Server>),
-}
-
-impl Default for RoleImpl {
-    fn default() -> Self {
-        Self::Offline
-    }
-}
-
-impl PartialEq<Role> for RoleImpl {
-    fn eq(&self, other: &Role) -> bool {
-        matches!(
-            (self, other),
-            (Self::Offline, Role::Offline)
-                | (Self::Client(_), Role::Client)
-                | (Self::Server(_), Role::Server)
-        )
     }
 }
 
 #[derive(Default)]
 pub struct FrameData {
-    pub role: Role,
+    update_impl: FrameUpdateImpl,
+}
+
+impl FrameData {
+    pub async fn update(&mut self, event_delegate: &AsyncEventDelegate<'_>) {
+        if event_delegate
+            .game_events()
+            .any(|e| matches!(e, GameEvent::NetworkRoleServer))
+        {
+            self.update_impl = FrameUpdateImpl::Server(Default::default());
+        } else if event_delegate
+            .game_events()
+            .any(|e| matches!(e, GameEvent::NetworkRoleClient))
+        {
+            self.update_impl = FrameUpdateImpl::Client(Default::default());
+        } else if event_delegate
+            .game_events()
+            .any(|e| matches!(e, GameEvent::NetworkRoleOffline))
+        {
+            self.update_impl = FrameUpdateImpl::Offline;
+        }
+
+        match &mut self.update_impl {
+            FrameUpdateImpl::Server(frame_data) => {
+                frame_data.update(event_delegate);
+            }
+            FrameUpdateImpl::Client(frame_data) => {
+                frame_data.update(event_delegate);
+            }
+            FrameUpdateImpl::Offline => {}
+        }
+    }
+}
+
+enum FixedUpdateImpl {
+    Offline,
+    Client(Box<Client>),
+    Server(Box<Server>),
+}
+
+impl Default for FixedUpdateImpl {
+    fn default() -> Self {
+        Self::Offline
+    }
+}
+
+impl PartialEq<FrameUpdateImpl> for FixedUpdateImpl {
+    fn eq(&self, other: &FrameUpdateImpl) -> bool {
+        matches!(
+            (self, other),
+            (Self::Server(_), FrameUpdateImpl::Server(_))
+                | (Self::Client(_), FrameUpdateImpl::Client(_))
+                | (Self::Offline, FrameUpdateImpl::Offline)
+        )
+    }
 }
 
 #[derive(Default)]
 pub struct FixedData {
-    target_role: Role,
-    role: RoleImpl,
+    update_impl: FixedUpdateImpl,
 }
 
 impl FixedData {
-    pub async fn swap(
-        &mut self,
-        frame_data: &mut FrameData,
-        event_delegate: &mut SyncEventDelegate<'_>,
-    ) {
-        self.target_role = frame_data.role;
+    pub async fn swap(&mut self, frame_data: &mut FrameData) {
+        if self.update_impl != frame_data.update_impl {
+            self.update_impl = match &frame_data.update_impl {
+                FrameUpdateImpl::Server(_) => FixedUpdateImpl::Server(Server::default().into()),
+                FrameUpdateImpl::Client(_) => FixedUpdateImpl::Client(Client::default().into()),
+                FrameUpdateImpl::Offline => FixedUpdateImpl::Offline,
+            };
+        }
 
-        if let RoleImpl::Client(client) = &mut self.role {
-            client.swap(event_delegate);
+        match &mut self.update_impl {
+            FixedUpdateImpl::Server(server) => {
+                let frame_data = match &mut frame_data.update_impl {
+                    FrameUpdateImpl::Server(frame_data) => frame_data,
+                    _ => unreachable!(),
+                };
+                server.swap(frame_data);
+            }
+            FixedUpdateImpl::Client(client) => {
+                let frame_data = match &mut frame_data.update_impl {
+                    FrameUpdateImpl::Client(frame_data) => frame_data,
+                    _ => unreachable!(),
+                };
+                client.swap(frame_data);
+            }
+            FixedUpdateImpl::Offline => {}
         }
     }
 
     pub async fn update(&mut self, update_buffer: NetworkUpdateBufferRef<'_>) {
-        if self.role != self.target_role {
-            log::info!("setting network role to {:?}", self.target_role);
-
-            self.role = match self.target_role {
-                Role::Offline => RoleImpl::Offline,
-                Role::Client => RoleImpl::Client(Client::default().into()),
-                Role::Server => RoleImpl::Server(Server::default().into()),
-            };
-        }
-
-        match &mut self.role {
-            RoleImpl::Offline => {}
-            RoleImpl::Client(client) => {
-                client.update(update_buffer).await;
+        match &mut self.update_impl {
+            FixedUpdateImpl::Server(server) => {
+                server.update(update_buffer);
             }
-            RoleImpl::Server(server) => {
-                server.update(update_buffer).await;
+            FixedUpdateImpl::Client(client) => {
+                client.update(update_buffer);
             }
+            FixedUpdateImpl::Offline => {}
         }
     }
+}
+
+fn broadcast_reliable_ordered<'a, I>(clients: I, sender: &Sender<Packet>, data: &[u8])
+where
+    I: IntoIterator<Item = &'a SocketAddr>,
+{
+    clients
+        .into_iter()
+        .map(|client| Packet::reliable_ordered(*client, data.to_vec(), Some(0)))
+        .for_each(|packet| sender.send(packet).unwrap());
+}
+
+fn broadcast_unreliable_sequenced<'a, I>(clients: I, sender: &Sender<Packet>, data: &[u8])
+where
+    I: IntoIterator<Item = &'a SocketAddr>,
+{
+    clients
+        .into_iter()
+        .map(|client| Packet::unreliable_sequenced(*client, data.to_vec(), Some(0)))
+        .for_each(|packet| sender.send(packet).unwrap());
 }

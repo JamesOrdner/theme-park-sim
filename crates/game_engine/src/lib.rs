@@ -127,6 +127,8 @@ impl GameEngine {
 
         self.update_game_state();
 
+        self.event_manager.clear_system_game_events();
+
         self.update_and_render_frame();
     }
 
@@ -145,10 +147,7 @@ impl GameEngine {
 
             // if last iteration, swap with frame updates
             if now.duration_since(self.last_fixed_update_instant) < FIXED_TIMESTEP {
-                let mut event_delegate = self.event_manager.sync_delegate();
-                let swap_task = self
-                    .fixed_update
-                    .swap(&mut self.frame_update, &mut event_delegate);
+                let swap_task = self.fixed_update.swap(&mut self.frame_update);
                 pin_mut!(swap_task);
                 self.task_executor.execute_blocking(swap_task);
             }
@@ -174,7 +173,6 @@ impl GameEngine {
             &mut frame_buffer,
             self.input.interface(),
             self.frame_update.camera.interface(),
-            &mut self.frame_update.network,
         );
     }
 

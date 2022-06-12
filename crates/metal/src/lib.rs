@@ -84,6 +84,11 @@ impl Metal {
     }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
+        for (old_id, new_id) in frame_buffer.updated_entity_ids() {
+            let static_mesh = self.static_meshes.remove(old_id).unwrap();
+            self.static_meshes.insert(*new_id, static_mesh);
+        }
+
         for entity_id in frame_buffer.despawned() {
             self.static_meshes.remove(entity_id);
         }

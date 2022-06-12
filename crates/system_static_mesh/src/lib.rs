@@ -2,7 +2,7 @@ use std::mem;
 
 use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::AsyncFrameBufferDelegate;
-use game_entity::{EntityId, EntityMap};
+use game_entity::EntityMap;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
 use update_buffer::StaticMeshUpdateBufferRef;
@@ -14,7 +14,6 @@ pub fn shared_data() -> SharedData {
 pub struct FrameData {
     shared_data: SharedData,
     modified_entities: EntityMap<Vec3>,
-    spawned: Vec<EntityId>,
     swapped: bool,
 }
 
@@ -23,7 +22,6 @@ impl FrameData {
         Self {
             shared_data,
             modified_entities: EntityMap::new(),
-            spawned: Vec::new(),
             swapped: false,
         }
     }
@@ -37,10 +35,10 @@ impl FrameData {
 
         let mut data = self.shared_data.write_single().await;
 
+        let frame_buffer_writer = frame_buffer.writer();
+
         if self.swapped {
             self.swapped = false;
-
-            let frame_buffer_writer = frame_buffer.writer();
 
             for (entity_id, modified_location) in &self.modified_entities {
                 if let Some(location) = data.locations.get_mut(*entity_id) {
@@ -54,17 +52,22 @@ impl FrameData {
 
         for game_event in event_delegate.game_events() {
             match game_event {
-                GameEvent::Spawn(entity_id) => {
-                    self.spawned.push(*entity_id);
+                GameEvent::Spawn { entity_id, .. } => {
                     data.locations.insert(*entity_id, Vec3::zeros());
                 }
                 GameEvent::Despawn(entity_id) => {
                     data.locations.remove(*entity_id);
                 }
+                GameEvent::UpdateEntityId { old_id, new_id } => {
+                    let location = data.locations.remove(*old_id);
+                    data.locations.insert(*new_id, location);
+                    frame_buffer_writer.push_update_entity_id(*old_id, *new_id);
+                }
                 GameEvent::StaticMeshLocation(entity_id, location) => {
                     data.locations[*entity_id] = *location;
                     self.modified_entities.insert(*entity_id, *location);
                 }
+                _ => {}
             }
         }
     }
@@ -73,7 +76,6 @@ impl FrameData {
 #[derive(Default)]
 pub struct FixedData {
     modified_entities: EntityMap<Vec3>,
-    spawned: Vec<EntityId>,
 }
 
 impl FixedData {
@@ -83,8 +85,6 @@ impl FixedData {
             &mut self.modified_entities,
             &mut frame_data.modified_entities,
         );
-
-        mem::swap(&mut self.spawned, &mut frame_data.spawned);
 
         frame_data.swapped = true;
     }
@@ -96,12 +96,7 @@ impl FixedData {
             update_buffer.push_location(*entity_id, *location);
         }
 
-        for entity_id in &self.spawned {
-            update_buffer.push_spawn(*entity_id);
-        }
-
         self.modified_entities.clear();
-        self.spawned.clear();
 
         // update system from other changes
 

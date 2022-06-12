@@ -47,6 +47,8 @@ impl Deref for NetworkId {
 
 #[repr(u8)]
 pub enum PacketType {
+    ClientSpawn,
+    ClientSpawnAck,
     Connect,
     Heartbeat,
     Location,
@@ -54,6 +56,8 @@ pub enum PacketType {
 }
 
 pub enum PacketRef<'a> {
+    ClientSpawn(ClientSpawnRef<'a>),
+    ClientSpawnAck(ClientSpawnAckRef<'a>),
     Connect,
     Heartbeat,
     Location(LocationRef<'a>),
@@ -63,6 +67,12 @@ pub enum PacketRef<'a> {
 impl<'a> From<&'a [u8]> for PacketRef<'a> {
     fn from(data: &'a [u8]) -> Self {
         match data[0] {
+            a if a == PacketType::ClientSpawn as u8 => {
+                Self::ClientSpawn(ClientSpawnRef(data[1..].try_into().unwrap()))
+            }
+            a if a == PacketType::ClientSpawnAck as u8 => {
+                Self::ClientSpawnAck(ClientSpawnAckRef(data[1..].try_into().unwrap()))
+            }
             a if a == PacketType::Connect as u8 => Self::Connect,
             a if a == PacketType::Heartbeat as u8 => Self::Heartbeat,
             a if a == PacketType::Location as u8 => {
@@ -73,6 +83,54 @@ impl<'a> From<&'a [u8]> for PacketRef<'a> {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+pub struct ClientSpawn {
+    pub entity_id: EntityId,
+}
+
+impl ClientSpawn {
+    pub fn serialize(&self) -> [u8; 5] {
+        let mut data = [0; 5];
+        data[0] = PacketType::ClientSpawn as u8;
+        data[1..5].copy_from_slice(&self.entity_id.get().to_le_bytes());
+        data
+    }
+}
+
+pub struct ClientSpawnRef<'a>(&'a [u8; 4]);
+
+impl ClientSpawnRef<'_> {
+    pub fn entity_id(&self) -> EntityId {
+        EntityId::new(u32::from_le_bytes(self.0[0..4].try_into().unwrap()))
+    }
+}
+
+pub struct ClientSpawnAck {
+    pub client_id: EntityId,
+    pub server_id: NetworkId,
+}
+
+impl ClientSpawnAck {
+    pub fn serialize(&self) -> [u8; 7] {
+        let mut data = [0; 7];
+        data[0] = PacketType::ClientSpawnAck as u8;
+        data[1..5].copy_from_slice(&self.client_id.get().to_le_bytes());
+        data[5..7].copy_from_slice(&self.server_id.get().to_le_bytes());
+        data
+    }
+}
+
+pub struct ClientSpawnAckRef<'a>(&'a [u8; 6]);
+
+impl ClientSpawnAckRef<'_> {
+    pub fn client_id(&self) -> EntityId {
+        EntityId::new(u32::from_le_bytes(self.0[0..4].try_into().unwrap()))
+    }
+
+    pub fn server_id(&self) -> NetworkId {
+        NetworkId::new(u16::from_le_bytes(self.0[4..6].try_into().unwrap()))
     }
 }
 

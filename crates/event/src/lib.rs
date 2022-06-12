@@ -8,13 +8,7 @@ pub enum FrameEvent {
     Location(EntityId),
 }
 
-#[derive(Clone, Copy)]
-pub enum GameEvent {
-    Spawn(EntityId),
-    Despawn(EntityId),
-    StaticMeshLocation(EntityId, Vec3),
-}
-
+/// Events which are created by game input.
 #[derive(Clone, Copy)]
 pub enum InputEvent {
     CameraMoveAxis(Vec2),
@@ -28,14 +22,46 @@ pub enum InputEvent {
     Spawn,
 }
 
+/// Events which are created by the game controller and consumed by systems.
 #[derive(Clone, Copy)]
-pub enum NetworkEvent {
-    Spawn(EntityId),
+pub enum GameEvent {
+    Spawn {
+        entity_id: EntityId,
+        replicable: bool,
+    },
     Despawn(EntityId),
+    UpdateEntityId {
+        old_id: EntityId,
+        new_id: EntityId,
+    },
+    StaticMeshLocation(EntityId, Vec3),
+    NetworkRoleOffline,
+    NetworkRoleClient,
+    NetworkRoleServer,
+    NetworkClientSpawnAck {
+        spawn_id: u16,
+        entity_id: EntityId,
+    },
+}
+
+/// Events which are created by systems and consumed by the game controller.
+#[derive(Clone, Copy)]
+pub enum SystemGameEvent {
+    NetworkSpawn(EntityId),
+    NetworkDespawn(EntityId),
+    NetworkClientSpawn(u16),
+    NetworkClientSpawnAck {
+        client_id: EntityId,
+        replicable_id: EntityId,
+    },
 }
 
 thread_local! {
     static FRAME_EVENT_BUFFER: Cell<*mut [Vec<FrameEvent>; 2]> = Cell::new(null_mut())
+}
+
+thread_local! {
+    static SYSTEM_GAME_EVENT_BUFFER: Cell<*mut Vec<SystemGameEvent>> = Cell::new(null_mut())
 }
 
 pub struct SyncEventDelegate<'a> {
@@ -54,22 +80,21 @@ impl SyncEventDelegate<'_> {
     }
 
     #[inline]
-    pub fn push_network_event(&mut self, event: NetworkEvent) {
-        self.event_manager.network_event_buffer.push(event);
-    }
-
-    #[inline]
     pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
     }
 
     #[inline]
-    pub fn network_events_mut(
+    pub fn system_game_events_mut(
         &mut self,
-    ) -> (SyncGameEventWriter, impl Iterator<Item = &NetworkEvent>) {
+    ) -> (SyncGameEventWriter, impl Iterator<Item = &SystemGameEvent>) {
         let game_event_writer = SyncGameEventWriter(&mut self.event_manager.game_event_buffer);
-        let network_events = self.event_manager.network_event_buffer.iter();
-        (game_event_writer, network_events)
+        let system_game_events = self
+            .event_manager
+            .system_game_event_buffers
+            .iter()
+            .flatten();
+        (game_event_writer, system_game_events)
     }
 
     #[inline]
@@ -117,6 +142,12 @@ impl AsyncEventDelegate<'_> {
     }
 
     #[inline]
+    pub fn push_system_game_event(&self, event: SystemGameEvent) {
+        SYSTEM_GAME_EVENT_BUFFER
+            .with(|queue| unsafe { queue.get().as_mut().unwrap_unchecked().push(event) });
+    }
+
+    #[inline]
     pub fn game_events(&self) -> impl Iterator<Item = &GameEvent> {
         self.event_manager.game_event_buffer.iter()
     }
@@ -141,7 +172,7 @@ pub struct EventManager {
     event_buffers: Vec<[Vec<FrameEvent>; 2]>,
     game_event_buffer: Vec<GameEvent>,
     input_event_buffer: Vec<InputEvent>,
-    network_event_buffer: Vec<NetworkEvent>,
+    system_game_event_buffers: Vec<Vec<SystemGameEvent>>,
     swap_index: bool,
 }
 
@@ -151,13 +182,16 @@ impl EventManager {
             event_buffers: vec![Default::default(); thread_count.get()],
             game_event_buffer: Vec::new(),
             input_event_buffer: Vec::new(),
-            network_event_buffer: Vec::new(),
+            system_game_event_buffers: vec![Vec::new(); thread_count.get()],
             swap_index: false,
         }
     }
 
     pub fn assign_thread_event_buffer(&self, thread_index: usize) {
         FRAME_EVENT_BUFFER.with(|queue| queue.set(self.event_buffers[thread_index].as_ptr() as _));
+        SYSTEM_GAME_EVENT_BUFFER.with(|queue| {
+            queue.set(&self.system_game_event_buffers[thread_index] as *const _ as _)
+        });
     }
 
     pub fn sync_delegate(&mut self) -> SyncEventDelegate {
@@ -182,7 +216,12 @@ impl EventManager {
 
         self.game_event_buffer.clear();
         self.input_event_buffer.clear();
-        self.network_event_buffer.clear();
+    }
+
+    pub fn clear_system_game_events(&mut self) {
+        for buffer in &mut self.system_game_event_buffers {
+            buffer.clear();
+        }
     }
 
     fn read_index(&self) -> usize {

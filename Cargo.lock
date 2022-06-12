@@ -679,7 +679,6 @@ dependencies = [
  "nalgebra-glm",
  "system_camera",
  "system_interfaces",
- "system_network",
 ]
 
 [[package]]

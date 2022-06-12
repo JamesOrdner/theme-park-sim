@@ -13,4 +13,3 @@ game_input = { path = "../game_input" }
 game_resources = { path = "../game_resources" }
 system_camera = { path = "../system_camera" }
 system_interfaces = { path = "../system_interfaces" }
-system_network = { path = "../system_network" }

@@ -56,6 +56,15 @@ impl FrameBufferReader<'_> {
             .flat_map(move |buffers| &buffers[swap_index].locations)
             .map(|entity_data| (entity_data.entity_id, &entity_data.data))
     }
+
+    #[inline]
+    pub fn updated_entity_ids(&self) -> impl Iterator<Item = &(EntityId, EntityId)> {
+        let swap_index = self.inner.read_index();
+        self.inner
+            .event_buffers
+            .iter()
+            .flat_map(move |buffers| &buffers[swap_index].updated_entity_ids)
+    }
 }
 
 pub struct FrameBufferWriter<'a> {
@@ -70,6 +79,15 @@ impl FrameBufferWriter<'_> {
             queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize]
                 .locations
                 .push(EntityData::new(entity_id, location));
+        });
+    }
+
+    #[inline]
+    pub fn push_update_entity_id(&self, old_id: EntityId, new_id: EntityId) {
+        EVENT_BUFFER.with(|queue| unsafe {
+            queue.get().as_mut().unwrap_unchecked()[self.swap_index as usize]
+                .updated_entity_ids
+                .push((old_id, new_id));
         });
     }
 }
@@ -135,6 +153,7 @@ impl Default for CameraInfo {
 #[derive(Clone, Default)]
 struct Data {
     locations: Vec<EntityData<Vec3>>,
+    updated_entity_ids: Vec<(EntityId, EntityId)>,
 }
 
 #[derive(Clone, Copy)]
@@ -152,6 +171,7 @@ impl<T> EntityData<T> {
 impl Data {
     fn clear(&mut self) {
         self.locations.clear();
+        self.updated_entity_ids.clear();
     }
 }
 
