@@ -1,5 +1,4 @@
 use std::{
-    mem,
     net::SocketAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -11,6 +10,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender};
 use event::{AsyncEventDelegate, GameEvent, SystemGameEvent};
+use game_data::system_swap_data::SystemSwapData;
 use game_entity::EntityId;
 use laminar::{Packet, Socket, SocketEvent};
 use update_buffer::NetworkUpdateBufferRef;
@@ -25,33 +25,35 @@ use crate::{
 };
 
 #[derive(Default)]
-pub struct ClientFrameData {
+struct SwapData {
     server_spawned: Vec<EntityId>,
     client_spawned: Vec<EntityId>,
     client_spawned_ack: Vec<(EntityId, NetworkId)>,
-    swapped: bool,
+}
+
+#[derive(Default)]
+pub struct ClientFrameData {
+    swap_data: SystemSwapData<SwapData>,
 }
 
 impl ClientFrameData {
     pub fn update(&mut self, event_delegate: &AsyncEventDelegate) {
         // push network events from last update to event_deleage
-        if self.swapped {
-            self.swapped = false;
-
-            for entity_id in &self.server_spawned {
+        if let Some(swap_data) = self.swap_data.swapped() {
+            for entity_id in &swap_data.server_spawned {
                 event_delegate.push_system_game_event(SystemGameEvent::NetworkSpawn(*entity_id));
             }
 
-            self.server_spawned.clear();
+            swap_data.server_spawned.clear();
 
-            for (client_id, server_id) in &self.client_spawned_ack {
+            for (client_id, server_id) in &swap_data.client_spawned_ack {
                 event_delegate.push_system_game_event(SystemGameEvent::NetworkClientSpawnAck {
                     client_id: *client_id,
                     replicable_id: server_id.entity_id(),
                 });
             }
 
-            self.client_spawned_ack.clear();
+            swap_data.client_spawned_ack.clear();
         }
 
         // queue spawn events from event_delegate
@@ -61,7 +63,7 @@ impl ClientFrameData {
                     entity_id,
                     replicable,
                 } if *replicable => {
-                    self.client_spawned.push(*entity_id);
+                    self.swap_data.client_spawned.push(*entity_id);
                 }
                 GameEvent::Despawn(_) => todo!(),
                 _ => {}
@@ -75,9 +77,7 @@ pub struct Client {
     sender: Sender<Packet>,
     receiver: Receiver<SocketEvent>,
     server_addr: SocketAddr,
-    server_spawned: Vec<EntityId>,
-    client_spawned: Vec<EntityId>,
-    client_spawned_ack: Vec<(EntityId, NetworkId)>,
+    swap_data: SystemSwapData<SwapData>,
 }
 
 impl Default for Client {
@@ -104,9 +104,7 @@ impl Default for Client {
             sender,
             receiver,
             server_addr,
-            server_spawned: Vec::new(),
-            client_spawned: Vec::new(),
-            client_spawned_ack: Vec::new(),
+            swap_data: Default::default(),
         }
     }
 }
@@ -119,14 +117,7 @@ impl Drop for Client {
 
 impl Client {
     pub fn swap(&mut self, frame_data: &mut ClientFrameData) {
-        mem::swap(&mut self.server_spawned, &mut frame_data.server_spawned);
-        mem::swap(&mut self.client_spawned, &mut frame_data.client_spawned);
-        mem::swap(
-            &mut self.client_spawned_ack,
-            &mut frame_data.client_spawned_ack,
-        );
-
-        frame_data.swapped = true;
+        self.swap_data.swap(&mut frame_data.swap_data);
     }
 
     pub fn update(&mut self, update_buffer: NetworkUpdateBufferRef) {
@@ -158,7 +149,7 @@ impl Client {
 
     fn update_swap(&mut self) {
         // send spawn request
-        for entity_id in &self.client_spawned {
+        for entity_id in &self.swap_data.client_spawned {
             let spawn_packet = ClientSpawn {
                 entity_id: *entity_id,
             };
@@ -170,7 +161,7 @@ impl Client {
             );
         }
 
-        self.client_spawned.clear();
+        self.swap_data.client_spawned.clear();
     }
 
     fn update_state(&mut self, update_buffer: NetworkUpdateBufferRef) {
@@ -206,7 +197,8 @@ impl Client {
     }
 
     fn handle_client_spawn_ack(&mut self, client_spawn_ack: ClientSpawnAckRef) {
-        self.client_spawned_ack
+        self.swap_data
+            .client_spawned_ack
             .push((client_spawn_ack.client_id(), client_spawn_ack.server_id()));
     }
 
@@ -215,6 +207,8 @@ impl Client {
     }
 
     fn handle_spawn(&mut self, spawn: SpawnRef) {
-        self.server_spawned.push(spawn.network_id().entity_id());
+        self.swap_data
+            .server_spawned
+            .push(spawn.network_id().entity_id());
     }
 }

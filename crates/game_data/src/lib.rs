@@ -5,6 +5,8 @@ use std::sync::{
 
 use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+pub mod system_swap_data;
+
 pub struct SharedData<T0 = (), T1 = (), const T1_LEN: usize = 0> {
     inner: Arc<SharedDataImpl<T0, T1, T1_LEN>>,
 }

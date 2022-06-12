@@ -1,7 +1,6 @@
-use std::mem;
-
 use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::AsyncFrameBufferDelegate;
+use game_data::system_swap_data::SystemSwapData;
 use game_entity::EntityMap;
 use nalgebra_glm::Vec3;
 use system_interfaces::static_mesh::Data as SharedData;
@@ -11,18 +10,21 @@ pub fn shared_data() -> SharedData {
     Default::default()
 }
 
+#[derive(Default)]
+struct SwapData {
+    modified_entities: EntityMap<Vec3>,
+}
+
 pub struct FrameData {
     shared_data: SharedData,
-    modified_entities: EntityMap<Vec3>,
-    swapped: bool,
+    swap_data: SystemSwapData<SwapData>,
 }
 
 impl FrameData {
     pub fn new(shared_data: SharedData) -> Self {
         Self {
             shared_data,
-            modified_entities: EntityMap::new(),
-            swapped: false,
+            swap_data: Default::default(),
         }
     }
 
@@ -37,17 +39,15 @@ impl FrameData {
 
         let frame_buffer_writer = frame_buffer.writer();
 
-        if self.swapped {
-            self.swapped = false;
-
-            for (entity_id, modified_location) in &self.modified_entities {
+        if let Some(swap_data) = self.swap_data.swapped() {
+            for (entity_id, modified_location) in &swap_data.modified_entities {
                 if let Some(location) = data.locations.get_mut(*entity_id) {
                     *location = *modified_location;
                     frame_buffer_writer.push_location(*entity_id, *modified_location);
                 }
             }
 
-            self.modified_entities.clear();
+            swap_data.modified_entities.clear();
         }
 
         for game_event in event_delegate.game_events() {
@@ -65,7 +65,9 @@ impl FrameData {
                 }
                 GameEvent::StaticMeshLocation(entity_id, location) => {
                     data.locations[*entity_id] = *location;
-                    self.modified_entities.insert(*entity_id, *location);
+                    self.swap_data
+                        .modified_entities
+                        .insert(*entity_id, *location);
                 }
                 _ => {}
             }
@@ -75,32 +77,27 @@ impl FrameData {
 
 #[derive(Default)]
 pub struct FixedData {
-    modified_entities: EntityMap<Vec3>,
+    swap_data: SystemSwapData<SwapData>,
 }
 
 impl FixedData {
     pub async fn swap(&mut self, frame_data: &mut FrameData) {
         // swap network updates to frame update, and local changes to fixed update thread
-        mem::swap(
-            &mut self.modified_entities,
-            &mut frame_data.modified_entities,
-        );
-
-        frame_data.swapped = true;
+        self.swap_data.swap(&mut frame_data.swap_data);
     }
 
     pub async fn update(&mut self, update_buffer: StaticMeshUpdateBufferRef<'_>) {
         // notify other of system changes
 
-        for (entity_id, location) in &self.modified_entities {
+        for (entity_id, location) in &self.swap_data.modified_entities {
             update_buffer.push_location(*entity_id, *location);
         }
 
-        self.modified_entities.clear();
+        self.swap_data.modified_entities.clear();
 
         // update system from other changes
 
-        self.modified_entities.extend(
+        self.swap_data.modified_entities.extend(
             update_buffer
                 .locations()
                 .map(|(entity_id, location)| (entity_id, *location)),
