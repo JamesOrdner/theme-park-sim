@@ -1,7 +1,7 @@
 use std::{ffi::CStr, fs, mem::size_of, path::Path, sync::Arc};
 
 use anyhow::{Context, Error, Result};
-use erupt::{utils::decode_spv, vk, DeviceLoader, ExtendableFrom};
+use erupt::{utils::decode_spv, vk, DeviceLoader};
 use memoffset::offset_of;
 use nalgebra_glm::Mat4;
 
@@ -84,10 +84,6 @@ impl Pipeline {
         let color_blend_create_info = vk::PipelineColorBlendStateCreateInfoBuilder::new()
             .attachments(&color_blend_attachments);
 
-        let color_attachment_formats = [swapchain.surface_format.format];
-        let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfoBuilder::new()
-            .color_attachment_formats(&color_attachment_formats);
-
         let pipeline_layout = pipeline_layout(vulkan)?;
 
         let pipeline_create_info = [vk::GraphicsPipelineCreateInfoBuilder::new()
@@ -101,7 +97,7 @@ impl Pipeline {
             .color_blend_state(&color_blend_create_info)
             .layout(pipeline_layout)
             .render_pass(render_pass)
-            .extend_from(&mut pipeline_rendering_create_info)];
+            .subpass(0)];
 
         let pipeline = unsafe {
             vulkan

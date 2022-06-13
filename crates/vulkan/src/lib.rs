@@ -8,7 +8,7 @@ use frame_buffer::FrameBufferReader;
 use futures::pin_mut;
 use nalgebra_glm::{look_at_lh, perspective_lh_zo, Mat4};
 use pipeline::SceneData;
-use render_pass::RenderPass;
+use render_pass::{RenderPass, VrRenderPassCreateInfo};
 use scene::Scene;
 use task_executor::task::parallel;
 use winit::{dpi::PhysicalSize, window::Window};
@@ -62,6 +62,7 @@ pub struct Vulkan {
     allocator: GpuAllocator,
     pipeline: Pipeline,
     render_pass: RenderPass,
+    vr_render_pass: Option<RenderPass>,
     swapchain: Swapchain,
     vr_swapchain: Option<VrSwapchain>,
     vulkan_info: VulkanInfo,
@@ -120,6 +121,7 @@ impl Vulkan {
             allocator,
             pipeline,
             render_pass,
+            vr_render_pass: None,
             swapchain,
             vr_swapchain: None,
             vulkan_info,
@@ -188,6 +190,7 @@ impl Vulkan {
             allocator,
             pipeline,
             render_pass,
+            vr_render_pass: None,
             swapchain,
             vr_swapchain: None,
             vulkan_info,
@@ -225,14 +228,20 @@ impl Vulkan {
         self.aspect = size.width as f32 / size.height as f32;
     }
 
-    pub fn create_vr_swapchain<I>(
-        &mut self,
-        create_info: &mut VrSwapchainCreateInfo<I>,
-    ) -> Result<()>
-    where
-        I: Iterator<Item = vk::Image>,
-    {
-        self.vr_swapchain = Some(VrSwapchain::new(&self.vulkan_info, create_info)?);
+    pub fn create_vr_swapchain(&mut self, create_info: &VrSwapchainCreateInfo) -> Result<()> {
+        let vr_swapchain = VrSwapchain::new(&self.vulkan_info, create_info)?;
+
+        self.vr_render_pass = Some(RenderPass::new_vr(
+            &self.vulkan_info,
+            &VrRenderPassCreateInfo {
+                surface_extent: create_info.surface_extent,
+                image_format: create_info.image_format,
+                image_views: &vr_swapchain.image_views,
+            },
+        )?);
+
+        self.vr_swapchain = Some(vr_swapchain);
+
         Ok(())
     }
 
@@ -323,8 +332,7 @@ impl Vulkan {
         let present_semaphore = self.frames[self.current_frame_index as usize]
             .as_mut()
             .unwrap()
-            .end_and_submit(frame_info)
-            .unwrap();
+            .end_and_submit(frame_info);
 
         self.swapchain
             .present(present_semaphore, swapchain_image_index)
@@ -344,7 +352,7 @@ impl Vulkan {
 
         self.update_scene(frame_buffer).await;
 
-        let swapchain = self.vr_swapchain.as_ref().unwrap();
+        let render_pass = self.vr_render_pass.as_ref().unwrap();
 
         let frame_info = self.frames[self.current_frame_index as usize]
             .as_mut()
@@ -352,62 +360,14 @@ impl Vulkan {
             .begin()
             .unwrap();
 
-        let swapchain_image = swapchain.images[vr_frame_info.swapchain_index as usize];
-        let swapchain_image_view = swapchain.image_views[vr_frame_info.swapchain_index as usize];
+        // render pass begin
 
-        // transition swapchain image to color attachment
-
-        let image_memory_barriers = [vk::ImageMemoryBarrier2Builder::new()
-            .src_stage_mask(vk::PipelineStageFlags2::TOP_OF_PIPE)
-            .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
-            .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
-            .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .image(swapchain_image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 2,
-            })];
-
-        let dependency_info =
-            vk::DependencyInfoBuilder::new().image_memory_barriers(&image_memory_barriers);
-
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_pipeline_barrier2(frame_info.command_buffer, &dependency_info);
-        }
+        render_pass.begin(
+            frame_info.command_buffer,
+            vr_frame_info.swapchain_index as usize,
+        );
 
         // render
-
-        let color_attachments = [vk::RenderingAttachmentInfoBuilder::new()
-            .image_view(swapchain_image_view)
-            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .clear_value(vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 0.0],
-                },
-            })];
-
-        let rendering_info = vk::RenderingInfoBuilder::new()
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: swapchain.surface_extent,
-            })
-            .layer_count(2)
-            .color_attachments(&color_attachments);
-
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_begin_rendering(frame_info.command_buffer, &rendering_info);
-        }
-
-        // render static mesh instances
 
         self.pipeline.bind(frame_info.command_buffer);
 
@@ -468,43 +428,14 @@ impl Vulkan {
             }
         }
 
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_end_rendering(frame_info.command_buffer);
-        }
+        // render pass end
 
-        // transition swapchain image to present layout
+        render_pass.end(frame_info.command_buffer);
 
-        let image_memory_barriers = [vk::ImageMemoryBarrier2Builder::new()
-            .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
-            .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
-            .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
-            .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-            .image(swapchain_image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 2,
-            })];
-
-        let dependency_info =
-            vk::DependencyInfoBuilder::new().image_memory_barriers(&image_memory_barriers);
-
-        unsafe {
-            self.vulkan_info
-                .device
-                .cmd_pipeline_barrier2(frame_info.command_buffer, &dependency_info);
-        }
-
-        let present_semaphore = self.frames[self.current_frame_index as usize]
+        self.frames[self.current_frame_index as usize]
             .as_mut()
             .unwrap()
-            .end_and_submit(frame_info)
-            .unwrap();
+            .end_and_submit_vr(frame_info);
 
         self.current_frame_index = !self.current_frame_index;
     }

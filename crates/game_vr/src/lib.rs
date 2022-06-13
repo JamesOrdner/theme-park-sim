@@ -6,7 +6,7 @@ use anyhow::{Error, Result};
 use erupt::vk;
 use frame_buffer::FrameBufferReader;
 use openxr as xr;
-use vulkan::Vulkan;
+use vulkan::{Vulkan, XrFrameInfo};
 use winit::window::Window;
 
 const BLEND_MODE: xr::EnvironmentBlendMode = xr::EnvironmentBlendMode::OPAQUE;
@@ -156,7 +156,11 @@ impl GameVr {
                 height: swapchain_extent.height as u32,
             },
             image_format: vk::Format::R8G8B8A8_SRGB,
-            images: swapchain.enumerate_images()?.into_iter().map(vk::Image),
+            images: swapchain
+                .enumerate_images()?
+                .into_iter()
+                .map(vk::Image)
+                .collect(),
         })?;
 
         let space =
@@ -202,9 +206,11 @@ impl GameVr {
 
         let swapchain_index = self.swapchain.acquire_image().unwrap();
 
-        // start writing render commands
-
         self.swapchain.wait_image(xr::Duration::INFINITE).unwrap();
+
+        vulkan
+            .frame_vr(&XrFrameInfo { swapchain_index }, frame_buffer)
+            .await;
 
         let (view_flags, views) = self
             .session
@@ -254,6 +260,8 @@ impl GameVr {
                     .views(&views)],
             )
             .unwrap();
+
+        panic!();
     }
 
     fn poll_events(&mut self) {

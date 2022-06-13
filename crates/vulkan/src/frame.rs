@@ -221,27 +221,39 @@ impl Frame {
         };
     }
 
-    pub fn end_and_submit(&self, _current_frame_info: CurrentFrameInfo) -> Result<vk::Semaphore> {
+    pub fn end_and_submit(&self, _current_frame_info: CurrentFrameInfo) -> vk::Semaphore {
         let wait_semaphores = [self.acquire_semaphore];
         let command_buffers = [self.command_buffer];
         let signal_semaphores = [self.present_semaphore];
 
-        let submits_info = [vk::SubmitInfoBuilder::new()
+        let submit_infos = [vk::SubmitInfoBuilder::new()
             .wait_semaphores(&wait_semaphores)
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::TOP_OF_PIPE])
             .command_buffers(&command_buffers)
             .signal_semaphores(&signal_semaphores)];
 
         unsafe {
-            self.device
-                .end_command_buffer(self.command_buffer)
-                .result()?;
+            self.device.end_command_buffer(self.command_buffer).unwrap();
 
             self.device
-                .queue_submit(self.graphics_queue, &submits_info, self.command_fence)
-                .result()?;
+                .queue_submit(self.graphics_queue, &submit_infos, self.command_fence)
+                .unwrap();
         }
 
-        Ok(self.present_semaphore)
+        self.present_semaphore
+    }
+
+    pub fn end_and_submit_vr(&self, _current_frame_info: CurrentFrameInfo) {
+        let command_buffers = [self.command_buffer];
+
+        let submit_infos = [vk::SubmitInfoBuilder::new().command_buffers(&command_buffers)];
+
+        unsafe {
+            self.device.end_command_buffer(self.command_buffer).unwrap();
+
+            self.device
+                .queue_submit(self.graphics_queue, &submit_infos, self.command_fence)
+                .unwrap();
+        }
     }
 }

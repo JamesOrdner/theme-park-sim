@@ -1,10 +1,16 @@
 use std::{ops::Deref, sync::Arc};
 
 use anyhow::Result;
-use erupt::{vk, DeviceLoader};
+use erupt::{vk, DeviceLoader, ExtendableFrom};
 use smallvec::SmallVec;
 
 use crate::{swapchain::Swapchain, VulkanInfo};
+
+pub struct VrRenderPassCreateInfo<'a> {
+    pub surface_extent: vk::Extent2D,
+    pub image_format: vk::Format,
+    pub image_views: &'a [vk::ImageView],
+}
 
 pub struct RenderPass {
     device: Arc<DeviceLoader>,
@@ -20,8 +26,6 @@ impl RenderPass {
             .samples(vk::SampleCountFlagBits::_1)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
-            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
 
@@ -74,6 +78,88 @@ impl RenderPass {
         let render_area = vk::Rect2D {
             offset: vk::Offset2D::default(),
             extent: swapchain.surface_extent,
+        };
+
+        Ok(Self {
+            device: vulkan.device.clone_loader(),
+            render_pass,
+            framebuffers,
+            render_area,
+        })
+    }
+
+    pub fn new_vr(vulkan: &VulkanInfo, vr_info: &VrRenderPassCreateInfo) -> Result<Self> {
+        let color_attachment = vk::AttachmentDescriptionBuilder::new()
+            .format(vr_info.image_format)
+            .samples(vk::SampleCountFlagBits::_1)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+
+        let color_attachment_ref = vk::AttachmentReferenceBuilder::new()
+            .attachment(0)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+
+        let color_attachments = [color_attachment_ref];
+
+        let subpass = vk::SubpassDescriptionBuilder::new()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(&color_attachments);
+
+        let attachments = [color_attachment];
+        let subpasses = [subpass];
+
+        let dependencies = [vk::SubpassDependencyBuilder::new()
+            .src_subpass(vk::SUBPASS_EXTERNAL)
+            .dst_subpass(0)
+            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)];
+
+        let view_masks = [0b11];
+        let mut multiview_create_info = vk::RenderPassMultiviewCreateInfoBuilder::new()
+            .view_masks(&view_masks)
+            .correlation_masks(&view_masks);
+
+        let create_info = vk::RenderPassCreateInfoBuilder::new()
+            .attachments(&attachments)
+            .subpasses(&subpasses)
+            .dependencies(&dependencies)
+            .extend_from(&mut multiview_create_info);
+
+        let render_pass = unsafe {
+            vulkan
+                .device
+                .create_render_pass(&create_info, None)
+                .result()?
+        };
+
+        let framebuffers = vr_info
+            .image_views
+            .iter()
+            .map(|image_view| {
+                let attachments = [*image_view];
+
+                let create_info = vk::FramebufferCreateInfoBuilder::new()
+                    .render_pass(render_pass)
+                    .attachments(&attachments)
+                    .width(vr_info.surface_extent.width)
+                    .height(vr_info.surface_extent.height)
+                    .layers(1);
+
+                unsafe {
+                    vulkan
+                        .device
+                        .create_framebuffer(&create_info, None)
+                        .unwrap()
+                }
+            })
+            .collect();
+
+        let render_area = vk::Rect2D {
+            offset: vk::Offset2D::default(),
+            extent: vr_info.surface_extent,
         };
 
         Ok(Self {

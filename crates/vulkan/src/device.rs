@@ -1,7 +1,7 @@
 use std::{ffi::CStr, ops::Deref, os::raw::c_char, sync::Arc};
 
 use anyhow::{Error, Result};
-use erupt::{vk, DeviceLoader, DeviceLoaderBuilder};
+use erupt::{vk, DeviceLoader, DeviceLoaderBuilder, ExtendableFrom};
 use smallvec::SmallVec;
 
 use crate::instance::Instance;
@@ -112,9 +112,13 @@ impl Device {
             })
             .collect();
 
+        let mut multiview_feature =
+            vk::PhysicalDeviceMultiviewFeaturesBuilder::new().multiview(true);
+
         let create_info = vk::DeviceCreateInfoBuilder::new()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&required_device_extensions);
+            .enabled_extension_names(&required_device_extensions)
+            .extend_from(&mut multiview_feature);
 
         let device = create_device(&create_info);
 

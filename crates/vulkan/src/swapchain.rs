@@ -187,50 +187,44 @@ pub struct VrSwapchain {
     device: Arc<DeviceLoader>,
     pub surface_extent: vk::Extent2D,
     pub image_format: vk::Format,
-    pub images: [vk::Image; 2],
-    pub image_views: [vk::ImageView; 2],
+    pub images: SmallVec<[vk::Image; 3]>,
+    pub image_views: SmallVec<[vk::ImageView; 3]>,
 }
 
-pub struct VrSwapchainCreateInfo<I>
-where
-    I: Iterator<Item = vk::Image>,
-{
+pub struct VrSwapchainCreateInfo {
     pub surface_extent: vk::Extent2D,
     pub image_format: vk::Format,
-    pub images: I,
+    pub images: SmallVec<[vk::Image; 3]>,
 }
 
 impl VrSwapchain {
-    pub fn new<I>(vulkan: &VulkanInfo, create_info: &mut VrSwapchainCreateInfo<I>) -> Result<Self>
-    where
-        I: Iterator<Item = vk::Image>,
-    {
-        let images = [
-            create_info.images.next().unwrap(),
-            create_info.images.next().unwrap(),
-        ];
+    pub fn new(vulkan: &VulkanInfo, create_info: &VrSwapchainCreateInfo) -> Result<Self> {
+        let images = create_info.images.clone();
 
-        let image_views = images.map(|image| {
-            let image_view_subresource_range = vk::ImageSubresourceRangeBuilder::new()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .base_mip_level(0)
-                .level_count(1)
-                .base_array_layer(0)
-                .layer_count(2);
+        let image_views = images
+            .iter()
+            .map(|image| {
+                let image_view_subresource_range = vk::ImageSubresourceRangeBuilder::new()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .base_mip_level(0)
+                    .level_count(1)
+                    .base_array_layer(0)
+                    .layer_count(2);
 
-            let image_view_create_info = vk::ImageViewCreateInfoBuilder::new()
-                .image(image)
-                .view_type(vk::ImageViewType::_2D_ARRAY)
-                .format(create_info.image_format)
-                .subresource_range(*image_view_subresource_range);
+                let image_view_create_info = vk::ImageViewCreateInfoBuilder::new()
+                    .image(*image)
+                    .view_type(vk::ImageViewType::_2D_ARRAY)
+                    .format(create_info.image_format)
+                    .subresource_range(*image_view_subresource_range);
 
-            unsafe {
-                vulkan
-                    .device
-                    .create_image_view(&image_view_create_info, None)
-                    .expect("create_image_view")
-            }
-        });
+                unsafe {
+                    vulkan
+                        .device
+                        .create_image_view(&image_view_create_info, None)
+                        .expect("create_image_view")
+                }
+            })
+            .collect();
 
         Ok(VrSwapchain {
             device: vulkan.device.clone_loader(),
