@@ -16,6 +16,27 @@ pub struct CurrentFrameInfo {
     pub command_buffer: vk::CommandBuffer,
     pub acquire_semaphore: vk::Semaphore,
     pub instance_descriptor_set: vk::DescriptorSet,
+    instance_data_alignment: vk::DeviceSize,
+}
+
+impl CurrentFrameInfo {
+    pub fn bind_instance_descriptor_set(
+        &self,
+        device: &DeviceLoader,
+        instance_index: usize,
+        pipeline_layout: vk::PipelineLayout,
+    ) {
+        unsafe {
+            device.cmd_bind_descriptor_sets(
+                self.command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                pipeline_layout,
+                0,
+                &[self.instance_descriptor_set],
+                &[instance_index as u32 * self.instance_data_alignment as u32],
+            );
+        }
+    }
 }
 
 pub struct Frame {
@@ -135,7 +156,7 @@ impl Frame {
                 & !(min_ubo_alignment - 1);
 
         let uniform_buffer_create_info = vk::BufferCreateInfoBuilder::new()
-            .size(instance_data_alignment * 4)
+            .size(instance_data_alignment * 32)
             .usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
@@ -146,7 +167,7 @@ impl Frame {
         let instance_descriptor_buffer_info = [vk::DescriptorBufferInfoBuilder::new()
             .buffer(instance_buffer.buffer)
             .offset(0)
-            .range(vk::WHOLE_SIZE)];
+            .range(instance_data_alignment)];
 
         let instance_descriptor_set_writes = [vk::WriteDescriptorSetBuilder::new()
             .dst_set(instance_descriptor_set)
@@ -208,6 +229,7 @@ impl Frame {
             command_buffer: self.command_buffer,
             acquire_semaphore: self.acquire_semaphore,
             instance_descriptor_set: self.instance_descriptor_set,
+            instance_data_alignment: self.instance_data_alignment,
         })
     }
 

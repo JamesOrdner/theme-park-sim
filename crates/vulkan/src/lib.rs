@@ -228,16 +228,13 @@ impl Vulkan {
         }
 
         for (i, static_mesh) in self.scene.static_meshes.values().enumerate() {
-            unsafe {
-                self.vulkan_info.device.cmd_bind_descriptor_sets(
-                    frame_info.command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipeline.layout(),
-                    0,
-                    &[frame_info.instance_descriptor_set],
-                    &[i as u32],
-                );
+            frame_info.bind_instance_descriptor_set(
+                &self.vulkan_info.device,
+                i,
+                self.pipeline.layout(),
+            );
 
+            unsafe {
                 self.vulkan_info.device.cmd_bind_index_buffer(
                     frame_info.command_buffer,
                     static_mesh.vertex_buffer.buffer,
@@ -315,6 +312,11 @@ impl Vulkan {
             self.scene.delete_queue.push(static_mesh.vertex_buffer);
         }
 
+        for (old_id, new_id) in frame_buffer.updated_entity_ids() {
+            let static_mesh = self.scene.static_meshes.remove(*old_id);
+            self.scene.static_meshes.insert(*new_id, static_mesh);
+        }
+
         // spawn
 
         self.transfer.begin_transfers(&mut self.allocator).unwrap();
@@ -369,9 +371,9 @@ impl Vulkan {
             .as_mut()
             .unwrap();
 
-        for static_mesh in self.scene.static_meshes.values() {
+        for (i, static_mesh) in self.scene.static_meshes.values().enumerate() {
             frame.update_instance(
-                0,
+                i,
                 &InstanceData {
                     model_matrix: static_mesh.transform,
                 },

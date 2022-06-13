@@ -108,6 +108,8 @@ impl GameController {
                     // client-only
                     self.world.local_to_replicable(*client_id, *replicable_id);
 
+                    frame_buffer.update_entity_id(*client_id, *replicable_id);
+
                     game_event_writer.push_game_event(GameEvent::UpdateEntityId {
                         old_id: *client_id,
                         new_id: *replicable_id,

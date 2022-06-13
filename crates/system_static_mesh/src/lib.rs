@@ -61,7 +61,6 @@ impl FrameData {
                 GameEvent::UpdateEntityId { old_id, new_id } => {
                     let location = data.locations.remove(*old_id);
                     data.locations.insert(*new_id, location);
-                    frame_buffer_writer.push_update_entity_id(*old_id, *new_id);
                 }
                 GameEvent::StaticMeshLocation(entity_id, location) => {
                     data.locations[*entity_id] = *location;
