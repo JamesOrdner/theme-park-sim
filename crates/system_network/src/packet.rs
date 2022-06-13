@@ -13,7 +13,7 @@ impl NetworkId {
         return Self(NonZeroU16::new(val).expect("EntityId may not be 0"));
 
         #[cfg(not(debug_assertions))]
-        return Self(unsafe { NonZeroU32::new_unchecked(val) });
+        return Self(unsafe { NonZeroU16::new_unchecked(val) });
     }
 
     pub fn entity_id(&self) -> EntityId {
