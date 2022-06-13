@@ -1,12 +1,10 @@
-use std::{cell::Cell, num::NonZeroUsize, ptr};
+use std::{cell::Cell, num::NonZeroUsize, ptr::null_mut};
 
 use game_entity::EntityId;
 use nalgebra_glm::{Vec2, Vec3};
 
 #[derive(Clone, Copy)]
 pub enum FrameEvent {
-    CameraLocation(Vec3),
-    CameraOrientation(Vec3),
     Location(EntityId),
 }
 
@@ -14,6 +12,7 @@ pub enum FrameEvent {
 pub enum GameEvent {
     Spawn(EntityId),
     Despawn(EntityId),
+    StaticMeshLocation(EntityId, Vec3),
 }
 
 #[derive(Clone, Copy)]
@@ -21,12 +20,15 @@ pub enum InputEvent {
     CameraMoveAxis(Vec2),
     CameraRotateAxis(Vec2),
     CameraZoom(f32),
-    CursorMoved(Vec2),
+    CursorMoved,
     MouseButton(bool),
+    ServerBegin,
+    ServerConnect,
+    ServerDisconnect,
 }
 
 thread_local! {
-    static FRAME_EVENT_BUFFER: Cell<*mut [Vec<FrameEvent>; 2]> = Cell::new(ptr::null_mut())
+    static FRAME_EVENT_BUFFER: Cell<*mut [Vec<FrameEvent>; 2]> = Cell::new(null_mut())
 }
 
 pub struct SyncEventDelegate<'a> {
@@ -34,23 +36,30 @@ pub struct SyncEventDelegate<'a> {
 }
 
 impl SyncEventDelegate<'_> {
-    #[inline(always)]
+    #[inline]
     pub fn push_game_event(&mut self, event: GameEvent) {
         self.event_manager.game_event_buffer.push(event);
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn push_input_event(&mut self, event: InputEvent) {
         self.event_manager.input_event_buffer.push(event);
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
     }
 
+    #[inline]
+    pub fn input_events_mut(&mut self) -> (SyncGameEventWriter, impl Iterator<Item = &InputEvent>) {
+        let game_event_writer = SyncGameEventWriter(&mut self.event_manager.game_event_buffer);
+        let input_events = self.event_manager.input_event_buffer.iter();
+        (game_event_writer, input_events)
+    }
+
     /// Frame events which occurred in the previous frame
-    #[inline(always)]
+    #[inline]
     pub fn frame_events(&self) -> impl Iterator<Item = &FrameEvent> {
         let swap_index = self.event_manager.read_index();
         self.event_manager
@@ -60,12 +69,21 @@ impl SyncEventDelegate<'_> {
     }
 }
 
+pub struct SyncGameEventWriter<'a>(&'a mut Vec<GameEvent>);
+
+impl SyncGameEventWriter<'_> {
+    #[inline]
+    pub fn push_game_event(&mut self, event: GameEvent) {
+        self.0.push(event);
+    }
+}
+
 pub struct AsyncEventDelegate<'a> {
     event_manager: &'a EventManager,
 }
 
 impl AsyncEventDelegate<'_> {
-    #[inline(always)]
+    #[inline]
     pub fn push_frame_event(&self, event: FrameEvent) {
         let swap_index = self.event_manager.write_index();
 
@@ -77,18 +95,18 @@ impl AsyncEventDelegate<'_> {
         });
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn game_events(&self) -> impl Iterator<Item = &GameEvent> {
         self.event_manager.game_event_buffer.iter()
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn input_events(&self) -> impl Iterator<Item = &InputEvent> {
         self.event_manager.input_event_buffer.iter()
     }
 
     /// Frame events which occurred in the previous frame
-    #[inline(always)]
+    #[inline]
     pub fn frame_events(&self) -> impl Iterator<Item = &FrameEvent> {
         let swap_index = self.event_manager.read_index();
         self.event_manager
@@ -108,7 +126,7 @@ pub struct EventManager {
 impl EventManager {
     pub fn new(thread_count: NonZeroUsize) -> Self {
         Self {
-            event_buffers: vec![[Vec::new(), Vec::new()]; thread_count.get()],
+            event_buffers: vec![Default::default(); thread_count.get()],
             game_event_buffer: Vec::new(),
             input_event_buffer: Vec::new(),
             swap_index: false,
@@ -116,8 +134,7 @@ impl EventManager {
     }
 
     pub fn assign_thread_event_buffer(&self, thread_index: usize) {
-        FRAME_EVENT_BUFFER
-            .with(|queue| queue.set(self.event_buffers[thread_index].as_ptr() as *mut _));
+        FRAME_EVENT_BUFFER.with(|queue| queue.set(self.event_buffers[thread_index].as_ptr() as _));
     }
 
     pub fn sync_delegate(&mut self) -> SyncEventDelegate {

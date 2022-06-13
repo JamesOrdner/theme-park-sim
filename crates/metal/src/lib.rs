@@ -84,21 +84,39 @@ impl Metal {
     }
 
     pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>) {
+        for entity_id in frame_buffer.despawned() {
+            self.static_meshes.remove(entity_id);
+        }
+
         for static_mesh in frame_buffer.spawned_static_meshes() {
             self.spawn_static_mesh(static_mesh);
         }
 
-        struct ProjView {
-            _proj: Mat4,
-            _view: Mat4,
+        for (entity_id, location) in frame_buffer.locations() {
+            if let Some(static_mesh) = self.static_meshes.get_mut(&entity_id) {
+                static_mesh.location = *location;
+            }
         }
 
-        let proj_view = ProjView {
-            _proj: perspective_lh_zo(self.aspect, 1.0, 0.01, 50.0),
-            _view: frame_buffer
-                .camera_info()
-                .map(|info| look_at_lh(&info.location, &info.focus, &info.up))
-                .unwrap_or_else(Mat4::identity),
+        #[allow(unused)]
+        struct ProjView {
+            proj: Mat4,
+            view: Mat4,
+        }
+
+        let proj_view = {
+            let camera_info = frame_buffer.camera_info();
+
+            let proj = perspective_lh_zo(
+                self.aspect,
+                camera_info.fov,
+                camera_info.near_plane,
+                camera_info.far_plane,
+            );
+
+            let view = look_at_lh(&camera_info.location, &camera_info.focus, &camera_info.up);
+
+            ProjView { proj, view }
         };
 
         autoreleasepool(|| {

@@ -1,13 +1,13 @@
 [package]
-name = "system_static_mesh"
+name = "system_network"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+crossbeam-channel = "0.5"
+laminar = "0.5.0"
+log = "0.4.16"
 nalgebra-glm = "0.16.0"
 
-event = { path = "../event" }
-frame_buffer = { path = "../frame_buffer" }
 game_entity = { path = "../game_entity" }
-system_interfaces = { path = "../system_interfaces" }
 update_buffer = { path = "../update_buffer" }

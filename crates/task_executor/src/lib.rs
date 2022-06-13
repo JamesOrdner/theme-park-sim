@@ -19,6 +19,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use core_affinity::{get_core_ids, CoreId};
 use spin::Mutex as SpinMutex;
 
 pub mod async_task;
@@ -90,7 +91,25 @@ impl TaskExecutor {
         let register_thread =
             unsafe { mem::transmute::<_, &'static (dyn Fn(usize) + Sync)>(register_thread) };
 
-        let thread_init = Arc::new((Mutex::new(0), Condvar::new()));
+        struct ThreadInfo {
+            init_count: Mutex<u8>,
+            cvar: Condvar,
+            core_ids: Vec<CoreId>,
+        }
+
+        let thread_init = Arc::new(ThreadInfo {
+            init_count: Mutex::new(0),
+            cvar: Condvar::new(),
+            core_ids: get_core_ids().unwrap(),
+        });
+
+        if thread_count.get() > thread_init.core_ids.len() {
+            log::warn!(
+                "thread count ({}) > available thread core ids ({})",
+                thread_init.core_ids.len(),
+                thread_count.get(),
+            );
+        }
 
         let (task_sender, task_receiver) = mpsc::channel();
         let task_receiver = Arc::new(Mutex::new(task_receiver));
@@ -107,9 +126,13 @@ impl TaskExecutor {
             let blocking_task_info = blocking_task_info.clone();
 
             thread_join_handles.push(thread::spawn(move || {
+                if let Some(id) = thread_init.core_ids.get(thread_index) {
+                    core_affinity::set_for_current(*id);
+                }
+
                 register_thread(thread_index);
-                *thread_init.0.lock().unwrap() += 1;
-                thread_init.1.notify_one();
+                *thread_init.init_count.lock().unwrap() += 1;
+                thread_init.cvar.notify_one();
                 drop(thread_init);
 
                 TASK_SENDER.with(|sender| sender.set(&task_sender));
@@ -140,9 +163,9 @@ impl TaskExecutor {
         }
 
         let _init_guard = thread_init
-            .1
-            .wait_while(thread_init.0.lock().unwrap(), |count| {
-                *count < thread_count.get()
+            .cvar
+            .wait_while(thread_init.init_count.lock().unwrap(), |count| {
+                (*count as usize) < thread_count.get()
             })
             .unwrap();
 
