@@ -5,7 +5,7 @@ use std::{collections::HashMap, mem, slice};
 use anyhow::{Context, Error, Result};
 use cocoa::{appkit::NSView, base::id as cocoa_id};
 use core_graphics_types::geometry::CGSize;
-use frame_buffer::{FrameBufferReader, SpawnedStaticMesh};
+use frame_buffer::FrameBufferReader;
 use game_entity::EntityId;
 use metal::{
     Buffer, CommandQueue, Device, MTLClearColor, MTLIndexType, MTLLoadAction, MTLPixelFormat,
@@ -93,8 +93,12 @@ impl Metal {
             self.static_meshes.remove(entity_id);
         }
 
+        for entity_id in frame_buffer.spawned_guests() {
+            self.spawn_static_mesh(*entity_id);
+        }
+
         for static_mesh in frame_buffer.spawned_static_meshes() {
-            self.spawn_static_mesh(static_mesh);
+            self.spawn_static_mesh(static_mesh.entity_id);
         }
 
         for (entity_id, location) in frame_buffer.locations() {
@@ -174,7 +178,7 @@ impl Metal {
         });
     }
 
-    fn spawn_static_mesh(&mut self, static_mesh_info: &SpawnedStaticMesh) {
+    fn spawn_static_mesh(&mut self, entity_id: EntityId) {
         let indices = [0_u16, 1, 2];
         let vertex_data = [0.0_f32, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
 
@@ -208,7 +212,6 @@ impl Metal {
             location: Vec3::zeros(),
         };
 
-        self.static_meshes
-            .insert(static_mesh_info.entity_id, static_mesh);
+        self.static_meshes.insert(entity_id, static_mesh);
     }
 }

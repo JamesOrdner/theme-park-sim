@@ -701,6 +701,7 @@ dependencies = [
  "metal 0.0.0",
  "system_audio",
  "system_camera",
+ "system_guest",
  "system_interfaces",
  "system_navigation",
  "system_network",
@@ -1818,6 +1819,18 @@ dependencies = [
  "frame_buffer",
  "nalgebra-glm",
  "system_interfaces",
+]
+
+[[package]]
+name = "system_guest"
+version = "0.0.0"
+dependencies = [
+ "event",
+ "frame_buffer",
+ "game_data",
+ "game_entity",
+ "nalgebra-glm",
+ "rand",
 ]
 
 [[package]]

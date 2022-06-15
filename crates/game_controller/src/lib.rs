@@ -173,6 +173,20 @@ impl GameController {
                     game_event_writer.push_game_event(GameEvent::NetworkRoleOffline);
                     self.network_role = NetworkRole::Offline;
                 }
+                InputEvent::SpawnGuest => {
+                    let entity_id = if self.network_role != NetworkRole::Client {
+                        self.world.spawn_replicable()
+                    } else {
+                        self.world.spawn()
+                    };
+
+                    game_event_writer.push_game_event(GameEvent::SpawnGuest {
+                        entity_id,
+                        replicate: true,
+                    });
+
+                    frame_buffer.spawn_guest(entity_id);
+                }
                 _ => {}
             }
         }

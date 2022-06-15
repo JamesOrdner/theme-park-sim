@@ -120,6 +120,27 @@ impl<T> EntityMap<T> {
     }
 
     #[inline]
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
+    }
+
+    #[inline]
+    pub fn iter(&self) -> Iter<T> {
+        Iter {
+            entity_id: self.entity_ids.iter(),
+            data: self.data.iter(),
+        }
+    }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        IterMut {
+            entity_id: self.entity_ids.iter(),
+            data: self.data.iter_mut(),
+        }
+    }
+
+    #[inline]
     pub fn extend<I>(&mut self, iter: I)
     where
         I: IntoIterator<Item = (EntityId, T)>,
@@ -187,9 +208,34 @@ impl<'a, T> IntoIterator for &'a EntityMap<T> {
 
     #[inline]
     fn into_iter(self) -> Iter<'a, T> {
-        Iter {
-            entity_id: self.entity_ids.iter(),
-            data: self.data.iter(),
+        self.iter()
+    }
+}
+
+pub struct IterMut<'a, T> {
+    entity_id: slice::Iter<'a, EntityId>,
+    data: slice::IterMut<'a, T>,
+}
+
+impl<'a, T> Iterator for IterMut<'a, T> {
+    type Item = (&'a EntityId, &'a mut T);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(entity_id) = self.entity_id.next() {
+            Some((entity_id, self.data.next().unwrap()))
+        } else {
+            None
         }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut EntityMap<T> {
+    type Item = (&'a EntityId, &'a mut T);
+    type IntoIter = IterMut<'a, T>;
+
+    #[inline]
+    fn into_iter(self) -> IterMut<'a, T> {
+        self.iter_mut()
     }
 }

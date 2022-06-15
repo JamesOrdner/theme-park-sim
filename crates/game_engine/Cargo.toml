@@ -14,6 +14,7 @@ game_input = { path = "../game_input" }
 game_system = { path = "../game_system" }
 system_audio = { path = "../system_audio" }
 system_camera = { path = "../system_camera" }
+system_guest = { path = "../system_guest" }
 system_interfaces = { path = "../system_interfaces" }
 system_navigation = { path = "../system_navigation" }
 system_network = { path = "../system_network" }

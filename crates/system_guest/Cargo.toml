@@ -1,0 +1,13 @@
+[package]
+name = "system_guest"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+nalgebra-glm = "0.16.0"
+rand = "0.8.5"
+
+event = { path = "../event" }
+frame_buffer = { path = "../frame_buffer" }
+game_data = { path = "../game_data" }
+game_entity = { path = "../game_entity" }

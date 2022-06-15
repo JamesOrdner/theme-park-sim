@@ -8,6 +8,7 @@ use winit::window::Window;
 pub struct FrameUpdate {
     pub audio: system_audio::FrameData,
     pub camera: system_camera::FrameData,
+    pub guest: system_guest::FrameData,
     pub navigation: system_navigation::FrameData,
     pub network: system_network::FrameData,
     pub static_mesh: system_static_mesh::FrameData,
@@ -31,6 +32,7 @@ impl FrameUpdate {
         Self {
             audio: Default::default(),
             camera,
+            guest: Default::default(),
             navigation,
             network: Default::default(),
             static_mesh,
@@ -52,17 +54,20 @@ impl FrameUpdate {
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &AsyncFrameBufferDelegate<'_>,
+        delta_time: f32,
     ) {
         let audio = self.audio.update(frame_buffer);
+        let guest = self.guest.update(event_delegate, frame_buffer, delta_time);
         let navigation = self.navigation.update(event_delegate);
         let network = self.network.update(event_delegate);
         let static_mesh = self.static_mesh.update(event_delegate, frame_buffer);
 
         pin_mut!(audio);
+        pin_mut!(guest);
         pin_mut!(navigation);
         pin_mut!(network);
         pin_mut!(static_mesh);
 
-        parallel([audio, navigation, network, static_mesh]).await;
+        parallel([audio, guest, navigation, network, static_mesh]).await;
     }
 }

@@ -129,7 +129,7 @@ impl GameEngine {
 
         self.event_manager.clear_system_game_events();
 
-        self.update_and_render_frame();
+        self.update_and_render_frame(delta_time);
     }
 
     fn update_fixed(&mut self) {
@@ -176,15 +176,15 @@ impl GameEngine {
         );
     }
 
-    fn update_and_render_frame(&mut self) {
+    fn update_and_render_frame(&mut self, delta_time: f32) {
         let frame_buffer_delegate = self.frame_buffer_manager.async_delegate();
         let frame_buffer_reader = frame_buffer_delegate.reader();
         let event_delegate = self.event_manager.async_delegate();
 
         let frame_task = async {
-            let frame_update_task = self
-                .frame_update
-                .update_async(&event_delegate, &frame_buffer_delegate);
+            let frame_update_task =
+                self.frame_update
+                    .update_async(&event_delegate, &frame_buffer_delegate, delta_time);
 
             let graphics_task = self.graphics.frame(&frame_buffer_reader);
 

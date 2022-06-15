@@ -20,12 +20,17 @@ pub enum InputEvent {
     ServerConnect,
     ServerDisconnect,
     Spawn,
+    SpawnGuest,
 }
 
 /// Events which are created by the game controller and consumed by systems.
 #[derive(Clone, Copy)]
 pub enum GameEvent {
     Spawn {
+        entity_id: EntityId,
+        replicate: bool,
+    },
+    SpawnGuest {
         entity_id: EntityId,
         replicate: bool,
     },

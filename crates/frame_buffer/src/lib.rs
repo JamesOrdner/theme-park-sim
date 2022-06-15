@@ -33,6 +33,11 @@ pub struct FrameBufferReader<'a> {
 
 impl FrameBufferReader<'_> {
     #[inline]
+    pub fn spawned_guests(&self) -> impl Iterator<Item = &EntityId> {
+        self.inner.spawned_guests.iter()
+    }
+
+    #[inline]
     pub fn spawned_static_meshes(&self) -> impl Iterator<Item = &SpawnedStaticMesh> {
         self.inner.spawned_static_meshes.iter()
     }
@@ -84,6 +89,11 @@ pub struct SyncFrameBufferDelegate<'a> {
 }
 
 impl SyncFrameBufferDelegate<'_> {
+    #[inline]
+    pub fn spawn_guest(&mut self, entity_id: EntityId) {
+        self.inner.spawned_guests.push(entity_id);
+    }
+
     #[inline]
     pub fn spawn_static_mesh(&mut self, static_mesh: SpawnedStaticMesh) {
         self.inner.spawned_static_meshes.push(static_mesh);
@@ -167,6 +177,7 @@ impl Data {
 
 pub struct FrameBufferManager {
     event_buffers: Vec<[Data; 2]>,
+    spawned_guests: Vec<EntityId>,
     spawned_static_meshes: Vec<SpawnedStaticMesh>,
     despawned: Vec<EntityId>,
     updated_entity_ids: Vec<(EntityId, EntityId)>,
@@ -178,6 +189,7 @@ impl FrameBufferManager {
     pub fn new(thread_count: NonZeroUsize) -> Self {
         Self {
             event_buffers: vec![[Data::default(), Data::default()]; thread_count.get()],
+            spawned_guests: Vec::new(),
             spawned_static_meshes: Vec::new(),
             despawned: Vec::new(),
             updated_entity_ids: Vec::new(),
@@ -205,6 +217,7 @@ impl FrameBufferManager {
             event_buffer[self.swap_index as usize].clear();
         }
 
+        self.spawned_guests.clear();
         self.spawned_static_meshes.clear();
         self.despawned.clear();
         self.updated_entity_ids.clear();

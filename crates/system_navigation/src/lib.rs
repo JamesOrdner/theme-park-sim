@@ -32,6 +32,8 @@ impl FrameData {
     }
 
     pub async fn update(&mut self, event_delegate: &AsyncEventDelegate<'_>) {
+        // TODO: do as part of fixed update
+
         // check completion of rebuild task
         if let Some(task_handle) = self.task_handle.take() {
             match task_handle.result() {

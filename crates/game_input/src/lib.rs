@@ -82,6 +82,7 @@ pub struct GameInput {
     camera_zoom: f32,
     server_state: Option<InputEvent>,
     spawn: InputState<bool>,
+    spawn_guest: InputState<bool>,
 }
 
 impl GameInput {
@@ -96,6 +97,7 @@ impl GameInput {
             camera_zoom: Default::default(),
             server_state: None,
             spawn: Default::default(),
+            spawn_guest: Default::default(),
         }
     }
 
@@ -146,8 +148,11 @@ impl GameInput {
                         VirtualKeyCode::Key3 => {
                             self.server_state = Some(InputEvent::ServerDisconnect);
                         }
-                        VirtualKeyCode::N => {
+                        VirtualKeyCode::N if pressed => {
                             *self.spawn = true;
+                        }
+                        VirtualKeyCode::G if pressed => {
+                            *self.spawn_guest = true;
                         }
                         _ => {}
                     }
@@ -194,6 +199,10 @@ impl GameInput {
 
         if self.spawn.updated().is_some() {
             event_delegate.push_input_event(InputEvent::Spawn);
+        }
+
+        if self.spawn_guest.updated().is_some() {
+            event_delegate.push_input_event(InputEvent::SpawnGuest);
         }
 
         // axis events are updated every frame
