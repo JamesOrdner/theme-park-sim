@@ -11,3 +11,4 @@ event = { path = "../event" }
 frame_buffer = { path = "../frame_buffer" }
 game_data = { path = "../game_data" }
 game_entity = { path = "../game_entity" }
+update_buffer = { path = "../update_buffer" }

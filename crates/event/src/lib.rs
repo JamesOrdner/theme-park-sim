@@ -53,6 +53,7 @@ pub enum GameEvent {
 #[derive(Clone, Copy)]
 pub enum SystemGameEvent {
     NetworkSpawn(EntityId),
+    NetworkSpawnGuest(EntityId),
     NetworkDespawn(EntityId),
     NetworkClientSpawn(u16),
     NetworkClientSpawnAck {

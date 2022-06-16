@@ -18,7 +18,8 @@ use update_buffer::NetworkUpdateBufferRef;
 use crate::{
     broadcast_reliable_ordered, broadcast_unreliable_sequenced,
     packet::{
-        ClientSpawn, ClientSpawnAckRef, Heartbeat, Location, LocationRef, PacketRef, SpawnRef,
+        ClientSpawn, ClientSpawnAckRef, GuestGoalRef, Heartbeat, Location, LocationRef, PacketRef,
+        SpawnGuestRef, SpawnRef,
     },
     POLL_INTERVAL, SERVER_ADDR,
 };
@@ -28,6 +29,7 @@ struct SwapData {
     server_spawned: Vec<EntityId>,
     client_spawned: Vec<EntityId>,
     client_spawned_ack: Vec<(EntityId, EntityId)>,
+    spawned_guests: Vec<EntityId>,
 }
 
 #[derive(Default)]
@@ -53,6 +55,13 @@ impl ClientFrameData {
             }
 
             swap_data.client_spawned_ack.clear();
+
+            for entity_id in &swap_data.spawned_guests {
+                event_delegate
+                    .push_system_game_event(SystemGameEvent::NetworkSpawnGuest(*entity_id));
+            }
+
+            swap_data.spawned_guests.clear();
         }
 
         // queue spawn events from event_delegate
@@ -185,11 +194,17 @@ impl Client {
             PacketRef::ClientSpawnAck(packet) => {
                 self.handle_client_spawn_ack(packet);
             }
+            PacketRef::GuestGoal(packet) => {
+                self.handle_guest_goal(packet, update_buffer);
+            }
             PacketRef::Location(packet) => {
                 self.handle_location(packet, update_buffer);
             }
             PacketRef::Spawn(packet) => {
                 self.handle_spawn(packet);
+            }
+            PacketRef::SpawnGuest(packet) => {
+                self.handle_spawn_guest(packet);
             }
             _ => {}
         }
@@ -201,11 +216,23 @@ impl Client {
             .push((client_spawn_ack.client_id(), client_spawn_ack.server_id()));
     }
 
+    fn handle_guest_goal(
+        &mut self,
+        guest_goal: GuestGoalRef,
+        update_buffer: NetworkUpdateBufferRef,
+    ) {
+        update_buffer.push_guest_goal(guest_goal.entity_id(), guest_goal.location().into());
+    }
+
     fn handle_location(&mut self, location: LocationRef, update_buffer: NetworkUpdateBufferRef) {
         update_buffer.push_location(location.entity_id(), location.location().into());
     }
 
     fn handle_spawn(&mut self, spawn: SpawnRef) {
         self.swap_data.server_spawned.push(spawn.entity_id());
+    }
+
+    fn handle_spawn_guest(&mut self, spawn: SpawnGuestRef) {
+        self.swap_data.spawned_guests.push(spawn.entity_id());
     }
 }

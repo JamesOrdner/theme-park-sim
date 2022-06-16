@@ -27,25 +27,41 @@ impl<T> EntityData<T> {
 
 #[derive(Default)]
 struct Data {
+    guest: Guest,
     network: Network,
     static_mesh: StaticMesh,
 }
 
 impl Data {
     fn clear(&mut self) {
+        self.guest.clear();
         self.network.clear();
         self.static_mesh.clear();
+    }
+}
+
+/// Updates that the guest system will read.
+#[derive(Default)]
+struct Guest {
+    goals: Vec<(EntityId, Vec3)>,
+}
+
+impl Guest {
+    fn clear(&mut self) {
+        self.goals.clear();
     }
 }
 
 /// Updates that the network system will read.
 #[derive(Default)]
 struct Network {
+    guest_goals: Vec<(EntityId, Vec3)>,
     locations: Vec<EntityData<Vec3>>,
 }
 
 impl Network {
     fn clear(&mut self) {
+        self.guest_goals.clear();
         self.locations.clear();
     }
 }
@@ -108,6 +124,13 @@ pub struct UpdateBufferRef<'a> {
 }
 
 impl UpdateBufferRef<'_> {
+    pub fn guest(&self) -> GuestUpdateBufferRef {
+        GuestUpdateBufferRef {
+            update_buffers: self.update_buffers,
+            swap_index: self.swap_index,
+        }
+    }
+
     pub fn network(&self) -> NetworkUpdateBufferRef {
         NetworkUpdateBufferRef {
             update_buffers: self.update_buffers,
@@ -124,12 +147,66 @@ impl UpdateBufferRef<'_> {
 }
 
 #[derive(Clone, Copy)]
+pub struct GuestUpdateBufferRef<'a> {
+    update_buffers: &'a Vec<[Data; 2]>,
+    swap_index: bool,
+}
+
+impl<'a> GuestUpdateBufferRef<'a> {
+    #[inline]
+    pub fn goals(&self) -> impl Iterator<Item = &(EntityId, Vec3)> {
+        let index = self.read_index();
+        self.update_buffers
+            .iter()
+            .flat_map(move |buffers| &buffers[index].guest.goals)
+    }
+
+    #[inline]
+    pub fn push_goal(&self, entity_id: EntityId, goal: Vec3) {
+        let index = self.write_index();
+
+        UPDATE_BUFFER.with(|buffer| unsafe {
+            let buffer = &mut buffer.get().as_mut().unwrap_unchecked()[index];
+
+            buffer.network.guest_goals.push((entity_id, goal));
+        });
+    }
+
+    fn read_index(&self) -> usize {
+        !self.swap_index as usize
+    }
+
+    fn write_index(&self) -> usize {
+        self.swap_index as usize
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct NetworkUpdateBufferRef<'a> {
     update_buffers: &'a Vec<[Data; 2]>,
     swap_index: bool,
 }
 
 impl<'a> NetworkUpdateBufferRef<'a> {
+    #[inline]
+    pub fn guest_goals(&self) -> impl Iterator<Item = &(EntityId, Vec3)> {
+        let index = self.read_index();
+        self.update_buffers
+            .iter()
+            .flat_map(move |buffers| &buffers[index].network.guest_goals)
+    }
+
+    #[inline]
+    pub fn push_guest_goal(&self, entity_id: EntityId, goal: Vec3) {
+        let index = self.write_index();
+
+        UPDATE_BUFFER.with(|buffer| unsafe {
+            let buffer = &mut buffer.get().as_mut().unwrap_unchecked()[index];
+
+            buffer.guest.goals.push((entity_id, goal));
+        });
+    }
+
     #[inline]
     pub fn locations(&self) -> impl Iterator<Item = (EntityId, &Vec3)> {
         let index = self.read_index();

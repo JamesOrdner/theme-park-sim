@@ -1831,6 +1831,7 @@ dependencies = [
  "game_entity",
  "nalgebra-glm",
  "rand",
+ "update_buffer",
 ]
 
 [[package]]

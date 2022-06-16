@@ -18,7 +18,8 @@ use update_buffer::NetworkUpdateBufferRef;
 use crate::{
     broadcast_reliable_ordered, broadcast_unreliable_sequenced,
     packet::{
-        ClientSpawnAck, ClientSpawnRef, Connect, Heartbeat, Location, LocationRef, PacketRef, Spawn,
+        ClientSpawnAck, ClientSpawnRef, Connect, GuestGoal, Heartbeat, Location, LocationRef,
+        PacketRef, Spawn, SpawnGuest,
     },
     POLL_INTERVAL, SERVER_ADDR,
 };
@@ -28,6 +29,7 @@ struct SwapData {
     server_spawned: Vec<EntityId>,
     client_spawned: Vec<u16>,
     client_spawned_acks: Vec<(u16, EntityId)>,
+    spawned_guests: Vec<EntityId>,
 }
 
 #[derive(Default)]
@@ -55,6 +57,12 @@ impl ServerFrameData {
                     replicate: true,
                 } => {
                     self.swap_data.server_spawned.push(*entity_id);
+                }
+                GameEvent::SpawnGuest {
+                    entity_id,
+                    replicate: true,
+                } => {
+                    self.swap_data.spawned_guests.push(*entity_id);
                 }
                 GameEvent::NetworkClientSpawnAck {
                     spawn_id,
@@ -194,6 +202,20 @@ impl Server {
 
         self.swap_data.server_spawned.clear();
 
+        for entity_id in &self.swap_data.spawned_guests {
+            let spawn_packet = SpawnGuest {
+                entity_id: *entity_id,
+            };
+
+            broadcast_reliable_ordered(
+                self.connected_clients.iter().map(|client| &client.addr),
+                &self.sender,
+                &spawn_packet.serialize(),
+            );
+        }
+
+        self.swap_data.spawned_guests.clear();
+
         // broadcast client spawn acks by server
 
         for (spawn_id, entity_id) in &self.swap_data.client_spawned_acks {
@@ -241,6 +263,20 @@ impl Server {
     }
 
     fn update_state(&mut self, update_buffer: NetworkUpdateBufferRef) {
+        update_buffer
+            .guest_goals()
+            .map(|(entity_id, location)| GuestGoal {
+                entity_id: *entity_id,
+                location: location.into(),
+            })
+            .for_each(|packet| {
+                broadcast_unreliable_sequenced(
+                    self.connected_clients.iter().map(|client| &client.addr),
+                    &self.sender,
+                    &packet.serialize(),
+                )
+            });
+
         update_buffer
             .locations()
             .map(|(entity_id, location)| Location {

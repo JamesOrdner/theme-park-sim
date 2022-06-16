@@ -48,9 +48,11 @@ pub enum PacketType {
     ClientSpawn,
     ClientSpawnAck,
     Connect,
+    GuestGoal,
     Heartbeat,
     Location,
     Spawn,
+    SpawnGuest,
 }
 
 #[derive(NetworkPacket)]
@@ -68,6 +70,12 @@ pub struct ClientSpawnAck {
 pub struct Connect;
 
 #[derive(NetworkPacket)]
+pub struct GuestGoal {
+    pub entity_id: EntityId,
+    pub location: Vec3_32,
+}
+
+#[derive(NetworkPacket)]
 pub struct Heartbeat;
 
 #[derive(NetworkPacket)]
@@ -78,5 +86,10 @@ pub struct Location {
 
 #[derive(NetworkPacket)]
 pub struct Spawn {
+    pub entity_id: EntityId,
+}
+
+#[derive(NetworkPacket)]
+pub struct SpawnGuest {
     pub entity_id: EntityId,
 }

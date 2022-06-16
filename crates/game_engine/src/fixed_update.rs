@@ -26,15 +26,17 @@ impl FixedUpdate {
     pub async fn swap(&mut self, frame_systems: &mut FrameUpdate) {
         let fixed_systems = self.systems.as_mut().unwrap();
 
+        let guest = fixed_systems.guest.swap(&mut frame_systems.guest);
         let network = fixed_systems.network.swap(&mut frame_systems.network);
         let static_mesh = fixed_systems
             .static_mesh
             .swap(&mut frame_systems.static_mesh);
 
+        pin_mut!(guest);
         pin_mut!(network);
         pin_mut!(static_mesh);
 
-        parallel([network, static_mesh]).await;
+        parallel([guest, network, static_mesh]).await;
     }
 
     pub fn execute(&mut self, task_executor: &mut TaskExecutor) {
@@ -46,15 +48,17 @@ impl FixedUpdate {
             let update_buffer = fixed_systems.update_buffer.borrow();
 
             {
+                let guest = fixed_systems.guest.update(update_buffer.guest());
                 let network = fixed_systems.network.update(update_buffer.network());
                 let static_mesh = fixed_systems
                     .static_mesh
                     .update(update_buffer.static_mesh());
 
+                pin_mut!(guest);
                 pin_mut!(network);
                 pin_mut!(static_mesh);
 
-                parallel([network, static_mesh]).await;
+                parallel([guest, network, static_mesh]).await;
             }
 
             fixed_systems
@@ -66,6 +70,7 @@ impl FixedUpdate {
 
 struct FixedUpdateSystems {
     update_buffer: UpdateBuffer,
+    guest: system_guest::FixedData,
     network: system_network::FixedData,
     static_mesh: system_static_mesh::FixedData,
 }
@@ -74,6 +79,7 @@ impl FixedUpdateSystems {
     fn new(update_buffer: UpdateBuffer) -> Self {
         Self {
             update_buffer,
+            guest: Default::default(),
             network: Default::default(),
             static_mesh: Default::default(),
         }

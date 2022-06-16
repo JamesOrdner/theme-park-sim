@@ -80,6 +80,18 @@ impl GameController {
                         resource: self.resource_manager.resource("sphere".to_string()),
                     });
                 }
+                NetworkSpawnGuest(entity_id) => {
+                    // client-only
+                    self.world.remote_spawn(*entity_id);
+                    game_event_writer.push_game_event(GameEvent::SpawnGuest {
+                        entity_id: *entity_id,
+                        replicate: false,
+                    });
+                    frame_buffer.spawn_static_mesh(SpawnedStaticMesh {
+                        entity_id: *entity_id,
+                        resource: self.resource_manager.resource("sphere".to_string()),
+                    });
+                }
                 NetworkDespawn(entity_id) => {
                     self.world.despawn(*entity_id);
                     game_event_writer.push_game_event(GameEvent::Despawn(*entity_id));
@@ -173,12 +185,8 @@ impl GameController {
                     game_event_writer.push_game_event(GameEvent::NetworkRoleOffline);
                     self.network_role = NetworkRole::Offline;
                 }
-                InputEvent::SpawnGuest => {
-                    let entity_id = if self.network_role != NetworkRole::Client {
-                        self.world.spawn_replicable()
-                    } else {
-                        self.world.spawn()
-                    };
+                InputEvent::SpawnGuest if self.network_role != NetworkRole::Client => {
+                    let entity_id = self.world.spawn_replicable();
 
                     game_event_writer.push_game_event(GameEvent::SpawnGuest {
                         entity_id,
