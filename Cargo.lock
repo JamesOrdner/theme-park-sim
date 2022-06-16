@@ -1863,7 +1863,16 @@ dependencies = [
  "laminar",
  "log",
  "nalgebra-glm",
+ "system_network_packet_macro",
  "update_buffer",
+]
+
+[[package]]
+name = "system_network_packet_macro"
+version = "0.0.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

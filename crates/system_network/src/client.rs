@@ -18,8 +18,7 @@ use update_buffer::NetworkUpdateBufferRef;
 use crate::{
     broadcast_reliable_ordered, broadcast_unreliable_sequenced,
     packet::{
-        ClientSpawn, ClientSpawnAckRef, Heartbeat, Location, LocationRef, NetworkId, PacketRef,
-        SpawnRef,
+        ClientSpawn, ClientSpawnAckRef, Heartbeat, Location, LocationRef, PacketRef, SpawnRef,
     },
     POLL_INTERVAL, SERVER_ADDR,
 };
@@ -28,7 +27,7 @@ use crate::{
 struct SwapData {
     server_spawned: Vec<EntityId>,
     client_spawned: Vec<EntityId>,
-    client_spawned_ack: Vec<(EntityId, NetworkId)>,
+    client_spawned_ack: Vec<(EntityId, EntityId)>,
 }
 
 #[derive(Default)]
@@ -49,7 +48,7 @@ impl ClientFrameData {
             for (client_id, server_id) in &swap_data.client_spawned_ack {
                 event_delegate.push_system_game_event(SystemGameEvent::NetworkClientSpawnAck {
                     client_id: *client_id,
-                    replicable_id: server_id.entity_id(),
+                    replicable_id: *server_id,
                 });
             }
 
@@ -169,8 +168,8 @@ impl Client {
             .locations()
             .filter(|(entity_id, _)| entity_id.get() <= u16::MAX.into()) // TEMP
             .map(|(entity_id, location)| Location {
-                network_id: entity_id.into(),
-                location: *location,
+                entity_id,
+                location: location.into(),
             })
             .for_each(|packet| {
                 broadcast_unreliable_sequenced(
@@ -203,12 +202,10 @@ impl Client {
     }
 
     fn handle_location(&mut self, location: LocationRef, update_buffer: NetworkUpdateBufferRef) {
-        update_buffer.push_location(location.network_id().entity_id(), location.location());
+        update_buffer.push_location(location.entity_id(), location.location().into());
     }
 
     fn handle_spawn(&mut self, spawn: SpawnRef) {
-        self.swap_data
-            .server_spawned
-            .push(spawn.network_id().entity_id());
+        self.swap_data.server_spawned.push(spawn.entity_id());
     }
 }

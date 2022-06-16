@@ -18,17 +18,16 @@ use update_buffer::NetworkUpdateBufferRef;
 use crate::{
     broadcast_reliable_ordered, broadcast_unreliable_sequenced,
     packet::{
-        ClientSpawnAck, ClientSpawnRef, Connect, Heartbeat, Location, LocationRef, NetworkId,
-        PacketRef, Spawn,
+        ClientSpawnAck, ClientSpawnRef, Connect, Heartbeat, Location, LocationRef, PacketRef, Spawn,
     },
     POLL_INTERVAL, SERVER_ADDR,
 };
 
 #[derive(Default)]
 struct SwapData {
-    server_spawned: Vec<NetworkId>,
+    server_spawned: Vec<EntityId>,
     client_spawned: Vec<u16>,
-    client_spawned_acks: Vec<(u16, NetworkId)>,
+    client_spawned_acks: Vec<(u16, EntityId)>,
 }
 
 #[derive(Default)]
@@ -55,7 +54,7 @@ impl ServerFrameData {
                     entity_id,
                     replicate: true,
                 } => {
-                    self.swap_data.server_spawned.push(entity_id.into());
+                    self.swap_data.server_spawned.push(*entity_id);
                 }
                 GameEvent::NetworkClientSpawnAck {
                     spawn_id,
@@ -63,7 +62,7 @@ impl ServerFrameData {
                 } => {
                     self.swap_data
                         .client_spawned_acks
-                        .push((*spawn_id, entity_id.into()));
+                        .push((*spawn_id, *entity_id));
                 }
                 GameEvent::Despawn(_) => todo!(),
                 _ => {}
@@ -181,9 +180,9 @@ impl Server {
     fn update_swap(&mut self) {
         // broadcast server spawns
 
-        for network_id in &self.swap_data.server_spawned {
+        for entity_id in &self.swap_data.server_spawned {
             let spawn_packet = Spawn {
-                network_id: *network_id,
+                entity_id: *entity_id,
             };
 
             broadcast_reliable_ordered(
@@ -197,7 +196,7 @@ impl Server {
 
         // broadcast client spawn acks by server
 
-        for (spawn_id, network_id) in &self.swap_data.client_spawned_acks {
+        for (spawn_id, entity_id) in &self.swap_data.client_spawned_acks {
             let mut spawning_client_addr = None;
 
             if let Some((i, client)) = self.connected_clients.iter_mut().find_map(|client| {
@@ -213,7 +212,7 @@ impl Server {
 
                 let spawn_ack_packet = ClientSpawnAck {
                     client_id,
-                    server_id: *network_id,
+                    server_id: *entity_id,
                 };
 
                 broadcast_reliable_ordered(
@@ -232,7 +231,7 @@ impl Server {
                 .filter(|addr| Some(**addr) != spawning_client_addr);
 
             let spawn_packet = Spawn {
-                network_id: *network_id,
+                entity_id: *entity_id,
             };
 
             broadcast_reliable_ordered(other_clients, &self.sender, &spawn_packet.serialize());
@@ -245,8 +244,8 @@ impl Server {
         update_buffer
             .locations()
             .map(|(entity_id, location)| Location {
-                network_id: entity_id.into(),
-                location: *location,
+                entity_id,
+                location: location.into(),
             })
             .for_each(|packet| {
                 broadcast_unreliable_sequenced(
@@ -306,10 +305,10 @@ impl Server {
         addr: &SocketAddr,
         update_buffer: NetworkUpdateBufferRef,
     ) {
-        update_buffer.push_location(location.network_id().entity_id(), location.location());
+        update_buffer.push_location(location.entity_id(), location.location().into());
 
         let location_packet = Location {
-            network_id: location.network_id(),
+            entity_id: location.entity_id(),
             location: location.location(),
         };
 

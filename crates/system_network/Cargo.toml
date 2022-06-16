@@ -12,4 +12,5 @@ nalgebra-glm = "0.16.0"
 event = { path = "../event" }
 game_data = { path = "../game_data" }
 game_entity = { path = "../game_entity" }
+system_network_packet_macro = { path = "../system_network_packet_macro" }
 update_buffer = { path = "../update_buffer" }

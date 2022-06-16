@@ -19,6 +19,11 @@ impl EntityId {
         return Self(unsafe { NonZeroU32::new_unchecked(val) });
     }
 
+    pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
+        let val = u32::from_le_bytes(bytes);
+        Self(NonZeroU32::new(val).expect("EntityId may not be 0"))
+    }
+
     pub fn min() -> Self {
         EntityId(NonZeroU32::new(1).unwrap())
     }
@@ -33,6 +38,10 @@ impl EntityId {
 
     pub fn decrement(&mut self) {
         self.0 = NonZeroU32::new(self.0.get() - 1).unwrap();
+    }
+
+    pub fn to_le_bytes(&self) -> [u8; 4] {
+        self.0.get().to_le_bytes()
     }
 }
 
