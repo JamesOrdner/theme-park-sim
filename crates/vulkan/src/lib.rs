@@ -321,7 +321,11 @@ impl Vulkan {
 
         self.transfer.begin_transfers(&mut self.allocator).unwrap();
 
-        for spawned in frame_buffer.spawned_static_meshes() {
+        for entity_id in frame_buffer
+            .spawned_static_meshes()
+            .map(|static_mesh| &static_mesh.entity_id)
+            .chain(frame_buffer.spawned_guests())
+        {
             const INDICES: [u16; 3] = [0, 1, 2];
             const VERTEX_DATA: [f32; 9] = [0.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0];
 
@@ -349,7 +353,7 @@ impl Vulkan {
             // create vertex buffer and transfer
 
             self.scene.static_meshes.insert(
-                spawned.entity_id,
+                *entity_id,
                 scene::StaticMesh {
                     vertex_buffer,
                     vertex_offset: VERTEX_OFFSET as vk::DeviceSize,
