@@ -193,6 +193,37 @@ impl<T> IndexMut<EntityId> for EntityMap<T> {
     }
 }
 
+pub struct IntoIter<T> {
+    entity_id: std::vec::IntoIter<EntityId>,
+    data: std::vec::IntoIter<T>,
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = (EntityId, T);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(entity_id) = self.entity_id.next() {
+            Some((entity_id, self.data.next().unwrap()))
+        } else {
+            None
+        }
+    }
+}
+
+impl<T> IntoIterator for EntityMap<T> {
+    type Item = (EntityId, T);
+    type IntoIter = IntoIter<T>;
+
+    #[inline]
+    fn into_iter(self) -> IntoIter<T> {
+        IntoIter {
+            entity_id: self.entity_ids.into_iter(),
+            data: self.data.into_iter(),
+        }
+    }
+}
+
 pub struct Iter<'a, T> {
     entity_id: slice::Iter<'a, EntityId>,
     data: slice::Iter<'a, T>,

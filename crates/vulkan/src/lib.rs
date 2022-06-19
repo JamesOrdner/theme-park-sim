@@ -51,7 +51,7 @@ pub struct VulkanInfo {
 pub struct Vulkan {
     scene: Scene,
     transfer: Transfer,
-    frames: [Option<Frame>; 2],
+    frames: [Frame; 2],
     current_frame_index: bool,
     allocator: GpuAllocator,
     pipeline: Pipeline,
@@ -83,15 +83,17 @@ impl Vulkan {
         let transfer = Transfer::new(&vulkan_info)?;
 
         let frames = [
-            Some(Frame::new(&vulkan_info, &mut allocator)?),
-            Some(Frame::new(&vulkan_info, &mut allocator)?),
+            Frame::new(&vulkan_info, &mut allocator)?,
+            Frame::new(&vulkan_info, &mut allocator)?,
         ];
 
         let size = window.inner_size();
         let aspect = size.width as f32 / size.height as f32;
 
+        let scene = Scene::new(&mut allocator);
+
         Ok(Self {
-            scene: Default::default(),
+            scene,
             frames,
             transfer,
             current_frame_index: false,
@@ -102,17 +104,15 @@ impl Vulkan {
             aspect,
         })
     }
-}
 
-impl Drop for Vulkan {
-    fn drop(&mut self) {
+    pub fn destroy(mut self) {
         unsafe {
             self.vulkan_info.device.device_wait_idle().unwrap();
 
             self.scene.destroy(&mut self.allocator);
 
-            for frame in &mut self.frames {
-                frame.take().unwrap().destroy(&mut self.allocator);
+            for frame in self.frames {
+                frame.destroy(&mut self.allocator);
             }
         }
     }
@@ -127,8 +127,6 @@ impl Vulkan {
         self.update_scene(frame_buffer);
 
         let frame_info = self.frames[self.current_frame_index as usize]
-            .as_mut()
-            .unwrap()
             .begin()
             .unwrap();
 
@@ -288,8 +286,6 @@ impl Vulkan {
         }
 
         let present_semaphore = self.frames[self.current_frame_index as usize]
-            .as_mut()
-            .unwrap()
             .end_and_submit(frame_info)
             .unwrap();
 
@@ -371,9 +367,7 @@ impl Vulkan {
             self.scene.static_meshes[entity_id].transform = transform;
         }
 
-        let frame = self.frames[self.current_frame_index as usize]
-            .as_mut()
-            .unwrap();
+        let frame = &mut self.frames[self.current_frame_index as usize];
 
         for (i, static_mesh) in self.scene.static_meshes.values().enumerate() {
             frame.update_instance(

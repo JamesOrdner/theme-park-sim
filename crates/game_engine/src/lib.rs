@@ -40,7 +40,7 @@ pub struct GameEngine {
     graphics: Metal,
 
     #[cfg(not(target_vendor = "apple"))]
-    graphics: Vulkan,
+    graphics: std::mem::ManuallyDrop<Vulkan>,
 }
 
 impl GameEngine {
@@ -68,7 +68,7 @@ impl GameEngine {
         let graphics = Metal::new(window).unwrap();
 
         #[cfg(not(target_vendor = "apple"))]
-        let graphics = Vulkan::new(window).unwrap();
+        let graphics = std::mem::ManuallyDrop::new(Vulkan::new(window).unwrap());
 
         Self {
             task_executor,
@@ -90,6 +90,14 @@ fn system_data() -> SystemData {
         navigation: system_navigation::shared_data(),
         physics: system_physics::shared_data(),
         static_mesh: system_static_mesh::shared_data(),
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+impl Drop for GameEngine {
+    fn drop(&mut self) {
+        let graphics = unsafe { std::mem::ManuallyDrop::take(&mut self.graphics) };
+        graphics.destroy();
     }
 }
 
