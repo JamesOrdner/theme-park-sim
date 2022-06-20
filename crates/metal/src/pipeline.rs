@@ -1,41 +1,37 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::PathBuf};
 
-use anyhow::{Context, Error, Result};
+use anyhow::{Error, Result};
 use metal::{
-    CompileOptions, Device, Function, MTLLanguageVersion, MTLPixelFormat, MTLVertexFormat,
+    CompileOptions, Device, MTLLanguageVersion, MTLPixelFormat, MTLVertexFormat,
     MTLVertexStepFunction, RenderPipelineDescriptor, RenderPipelineState, VertexDescriptor,
 };
-use naga::{
-    back::msl::{self, BindTarget, PerStageMap, PerStageResources},
-    front::spv,
-    valid::{Capabilities, ValidationFlags, Validator},
-    ResourceBinding,
-};
-
 pub struct Pipeline {
     pub state: RenderPipelineState,
 }
 
 impl Pipeline {
     pub fn new(name: &str, device: &Device) -> Result<Self> {
-        let vertex_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../res/shaders")
             .join(name)
-            .with_extension("vert.spv");
+            .with_extension("metal");
 
-        let vertex_function =
-            convert_spv(&vertex_path, device).with_context(|| vertex_path.display().to_string())?;
+        let source = fs::read_to_string(path)?;
 
-        let fragment_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../res/shaders")
-            .join(name)
-            .with_extension("frag.spv");
+        let compile_options = CompileOptions::new();
+        compile_options.set_language_version(MTLLanguageVersion::V2_2);
 
-        let fragment_function = convert_spv(&fragment_path, device)
-            .with_context(|| fragment_path.display().to_string())?;
+        let library = device
+            .new_library_with_source(&source, &compile_options)
+            .map_err(Error::msg)?;
+
+        let vertex_function = library
+            .get_function("vertexShader", None)
+            .map_err(Error::msg)?;
+
+        let fragment_function = library
+            .get_function("fragmentShader", None)
+            .map_err(Error::msg)?;
 
         let pipeline_descriptor = RenderPipelineDescriptor::new();
         pipeline_descriptor.set_vertex_function(Some(&vertex_function));
@@ -64,57 +60,4 @@ impl Pipeline {
 
         Ok(Self { state })
     }
-}
-
-fn convert_spv(path: &Path, device: &Device) -> Result<Function> {
-    let module = {
-        let source = fs::read(path)?;
-        let options = spv::Options {
-            adjust_coordinate_space: false,
-            strict_capabilities: true,
-            block_ctx_dump_prefix: None,
-        };
-        spv::parse_u8_slice(&source, &options)?
-    };
-
-    let info = Validator::new(ValidationFlags::all(), Capabilities::all()).validate(&module)?;
-
-    let options = msl::Options {
-        lang_version: (2, 2), // macOS 10.15+
-        per_stage_map: PerStageMap {
-            vs: PerStageResources {
-                resources: [(
-                    ResourceBinding {
-                        group: 0,
-                        binding: 0,
-                    },
-                    BindTarget {
-                        buffer: Some(2),
-                        ..Default::default()
-                    },
-                )]
-                .into(),
-                push_constant_buffer: Some(1),
-                sizes_buffer: None,
-            },
-            ..Default::default()
-        },
-        fake_missing_bindings: false,
-        ..Default::default()
-    };
-
-    let pipeline_options = msl::PipelineOptions {
-        allow_point_size: false,
-    };
-
-    let (source, _) = msl::write_string(&module, &info, &options, &pipeline_options)?;
-
-    let compile_options = CompileOptions::new();
-    compile_options.set_language_version(MTLLanguageVersion::V2_2);
-
-    device
-        .new_library_with_source(&source, &compile_options)
-        .map_err(Error::msg)?
-        .get_function("main_", None)
-        .map_err(Error::msg)
 }

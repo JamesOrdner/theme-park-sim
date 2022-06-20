@@ -31,13 +31,17 @@ impl FrameData {
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &AsyncFrameBufferDelegate<'_>,
-        delta_time: f32,
+        _delta_time: f32,
     ) {
         if let Some(swap_data) = self.swap_data.swapped() {
             for (entity_id, goal) in &swap_data.guest_goals {
                 let guest = &mut self.guests[*entity_id];
                 guest.goal = *goal;
                 guest.speed = 1.4;
+
+                frame_buffer
+                    .writer()
+                    .push_guest_goal(*entity_id, guest.goal, guest.speed);
             }
 
             swap_data.guest_goals.clear();
@@ -53,6 +57,9 @@ impl FrameData {
                     };
 
                     self.guests.insert(*entity_id, guest);
+                    frame_buffer
+                        .writer()
+                        .push_location(*entity_id, Vec3::zeros());
                 }
                 GameEvent::Despawn(entity_id) => {
                     self.guests.remove(*entity_id);
@@ -79,6 +86,10 @@ impl FrameData {
                     guest.speed = 1.4;
 
                     self.swap_data.guest_goals.push((*entity_id, guest.goal));
+
+                    frame_buffer
+                        .writer()
+                        .push_guest_goal(*entity_id, guest.goal, guest.speed);
                 }
             }
         } else {
@@ -86,18 +97,6 @@ impl FrameData {
                 .values_mut()
                 .filter(|guest| (guest.location - guest.goal).norm() < 0.5)
                 .for_each(|guest| guest.speed = 0.0);
-        }
-
-        // update guest positions
-        for (entity_id, guest) in self
-            .guests
-            .iter_mut()
-            .filter(|(_, guest)| guest.speed != 0.0)
-        {
-            guest.location += (guest.goal - guest.location).normalize() * guest.speed * delta_time;
-            frame_buffer
-                .writer()
-                .push_location(*entity_id, guest.location);
         }
     }
 }

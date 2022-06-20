@@ -194,7 +194,7 @@ impl GameEngine {
                 self.frame_update
                     .update_async(&event_delegate, &frame_buffer_delegate, delta_time);
 
-            let graphics_task = self.graphics.frame(&frame_buffer_reader);
+            let graphics_task = self.graphics.frame(&frame_buffer_reader, delta_time);
 
             pin_mut!(frame_update_task);
             pin_mut!(graphics_task);
