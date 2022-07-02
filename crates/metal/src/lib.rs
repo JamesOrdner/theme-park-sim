@@ -13,12 +13,15 @@ use metal::{
     MTLPixelFormat, MTLPrimitiveType, MTLResourceOptions, MTLSize, MetalLayer, NSRange, NSUInteger,
     RenderPassDescriptor,
 };
-use nalgebra_glm::{look_at_lh, perspective_lh_zo, translate, Mat4, Vec3, Vec4};
+use nalgebra_glm::{look_at_lh, perspective_lh_zo, translate, Mat4, Vec3};
 use objc::{rc::autoreleasepool, runtime::YES};
 use winit::{dpi::PhysicalSize, platform::macos::WindowExtMacOS, window::Window};
 
 use crate::pipeline::Pipeline;
 
+pub use compute_data::GpuComputeData;
+
+mod compute_data;
 mod compute_pipeline;
 mod pipeline;
 
@@ -26,24 +29,6 @@ struct StaticMesh {
     buffer: Buffer,
     locations_offset: NSUInteger,
     location: Vec3,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct GuestData {
-    loc: Vec4,
-    goal: Vec3,
-    speed: f32,
-}
-
-impl Default for GuestData {
-    fn default() -> Self {
-        Self {
-            loc: Vec4::from([0.0, 0.0, 0.0, 1.0]),
-            goal: Vec3::zeros(),
-            speed: 0.0,
-        }
-    }
 }
 
 pub struct Metal {
@@ -55,13 +40,12 @@ pub struct Metal {
     aspect: f32,
     static_meshes: HashMap<EntityId, StaticMesh>,
     guests: Vec<(EntityId, StaticMesh)>,
-    guests_buffer: Buffer,
 }
 
 unsafe impl Send for Metal {}
 
 impl Metal {
-    pub fn new(window: &Window) -> Result<Self> {
+    pub fn new(window: &Window) -> Result<(Self, GpuComputeData)> {
         autoreleasepool(|| {
             let device = Device::system_default().ok_or_else(|| Error::msg("no device found"))?;
             log::info!("Metal device: {}", device.name());
@@ -90,20 +74,7 @@ impl Metal {
 
             let aspect = size.width as f32 / size.height as f32;
 
-            let guests_buffer = device.new_buffer(
-                100 * mem::size_of::<GuestData>() as u64,
-                MTLResourceOptions::StorageModeManaged,
-            );
-
-            unsafe {
-                let guests_data =
-                    std::slice::from_raw_parts_mut(guests_buffer.contents() as *mut GuestData, 100);
-                guests_data.fill(Default::default());
-                guests_buffer
-                    .did_modify_range(NSRange::new(0, 100 * mem::size_of::<GuestData>() as u64));
-            }
-
-            Ok(Self {
+            let metal = Self {
                 device,
                 layer,
                 queue,
@@ -112,8 +83,11 @@ impl Metal {
                 aspect,
                 static_meshes: HashMap::new(),
                 guests: Vec::new(),
-                guests_buffer,
-            })
+            };
+
+            let compute_data = GpuComputeData::new(&metal.device);
+
+            Ok((metal, compute_data))
         })
     }
 
@@ -126,7 +100,12 @@ impl Metal {
         self.aspect = size.width as f32 / size.height as f32;
     }
 
-    pub async fn frame(&mut self, frame_buffer: &FrameBufferReader<'_>, delta_time: f32) {
+    pub async fn frame(
+        &mut self,
+        frame_buffer: &FrameBufferReader<'_>,
+        compute_data: &GpuComputeData,
+        delta_time: f32,
+    ) {
         for (old_id, new_id) in frame_buffer.updated_entity_ids() {
             let static_mesh = self.static_meshes.remove(old_id).unwrap();
             self.static_meshes.insert(*new_id, static_mesh);
@@ -159,21 +138,9 @@ impl Metal {
                 .enumerate()
                 .find(|(_, (eid, _))| eid == entity_id)
             {
-                let guests_data = unsafe {
-                    std::slice::from_raw_parts_mut(
-                        self.guests_buffer.contents() as *mut GuestData,
-                        100,
-                    )
-                };
-
-                let guest = &mut guests_data[i];
-                guest.goal = *location;
-                guest.speed = *speed;
-
-                self.guests_buffer.did_modify_range(NSRange::new(
-                    (i * mem::size_of::<GuestData>()) as u64,
-                    mem::size_of::<GuestData>() as u64,
-                ));
+                unsafe {
+                    compute_data.guest().set_velocity(i, *location, *speed);
+                }
             }
         }
 
@@ -188,7 +155,10 @@ impl Metal {
                     mem::size_of::<f32>() as u64,
                     &delta_time as *const _ as *const _,
                 );
-                encoder.set_buffer(1, Some(&self.guests_buffer), 0);
+                encoder.set_buffer(1, Some(compute_data.guest().locations()), 0);
+                encoder.set_buffer(2, Some(compute_data.guest().gpu_velocities()), 0);
+                encoder.set_buffer(3, Some(compute_data.guest().gpu_locations_mut()), 0);
+
                 encoder.dispatch_threads(
                     MTLSize::new(self.guests.len() as u64, 1, 1),
                     MTLSize::new(1, 1, 1),
@@ -242,7 +212,7 @@ impl Metal {
                     &proj_view as *const _ as *const _,
                 );
 
-                encoder.set_vertex_buffer(3, Some(&self.guests_buffer), 0);
+                encoder.set_vertex_buffer(3, Some(compute_data.guest().gpu_locations_mut()), 0);
 
                 for static_mesh in self.static_meshes.values() {
                     let model = translate(&Mat4::identity(), &static_mesh.location);
@@ -274,7 +244,7 @@ impl Metal {
                     &proj_view as *const _ as *const _,
                 );
 
-                encoder.set_vertex_buffer(3, Some(&self.guests_buffer), 0);
+                encoder.set_vertex_buffer(3, Some(compute_data.guest().gpu_locations_mut()), 0);
 
                 for (i, (_, static_mesh)) in self.guests.iter().enumerate() {
                     let model = translate(&Mat4::identity(), &static_mesh.location);

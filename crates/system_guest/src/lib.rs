@@ -1,8 +1,8 @@
 use event::{AsyncEventDelegate, GameEvent};
 use frame_buffer::AsyncFrameBufferDelegate;
 use game_data::system_swap_data::SystemSwapData;
-use game_entity::EntityId;
-use game_entity::EntityMap;
+use game_entity::{EntityId, EntityMap};
+use gpu_compute_data::GuestGpuComputeData;
 use nalgebra_glm::Vec3;
 use rand::prelude::*;
 use update_buffer::GuestUpdateBufferRef;
@@ -13,9 +13,8 @@ struct SwapData {
 }
 
 struct Guest {
-    location: Vec3,
     goal: Vec3,
-    /// m/s
+    /// meters / sec
     speed: f32,
 }
 
@@ -27,12 +26,14 @@ pub struct FrameData {
 }
 
 impl FrameData {
-    pub async fn update(
+    pub async fn update<T>(
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &AsyncFrameBufferDelegate<'_>,
-        _delta_time: f32,
-    ) {
+        gpu_compute_data: &T,
+    ) where
+        T: GuestGpuComputeData,
+    {
         if let Some(swap_data) = self.swap_data.swapped() {
             for (entity_id, goal) in &swap_data.guest_goals {
                 let guest = &mut self.guests[*entity_id];
@@ -51,7 +52,6 @@ impl FrameData {
             match game_event {
                 GameEvent::SpawnGuest { entity_id, .. } => {
                     let guest = Guest {
-                        location: Vec3::zeros(),
                         goal: Vec3::zeros(),
                         speed: 0.0,
                     };
@@ -79,7 +79,8 @@ impl FrameData {
             let mut rng = thread_rng();
 
             for (entity_id, guest) in &mut self.guests {
-                if (guest.location - guest.goal).norm() < 0.5 {
+                let location = gpu_compute_data.location(*entity_id);
+                if (location - guest.goal).norm() < 0.5 {
                     let x = rng.gen_range(-25.0..25.0);
                     let z = rng.gen_range(-25.0..25.0);
                     guest.goal = Vec3::from([x, 0.0, z]);
@@ -92,11 +93,6 @@ impl FrameData {
                         .push_guest_goal(*entity_id, guest.goal, guest.speed);
                 }
             }
-        } else {
-            self.guests
-                .values_mut()
-                .filter(|guest| (guest.location - guest.goal).norm() < 0.5)
-                .for_each(|guest| guest.speed = 0.0);
         }
     }
 }

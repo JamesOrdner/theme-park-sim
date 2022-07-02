@@ -824,6 +824,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu_compute_data"
+version = "0.0.0"
+dependencies = [
+ "game_entity",
+ "nalgebra-glm",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1076,6 +1084,7 @@ dependencies = [
  "core-graphics-types",
  "frame_buffer",
  "game_entity",
+ "gpu_compute_data",
  "log",
  "metal 0.23.1",
  "naga",
@@ -1829,6 +1838,7 @@ dependencies = [
  "frame_buffer",
  "game_data",
  "game_entity",
+ "gpu_compute_data",
  "nalgebra-glm",
  "rand",
  "update_buffer",

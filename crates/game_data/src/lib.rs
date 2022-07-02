@@ -102,6 +102,10 @@ impl<T0, T1, const T1_LEN: usize> SharedData<T0, T1, T1_LEN> {
         self.inner.single_data.write().await
     }
 
+    pub fn try_write_single(&mut self) -> Option<RwLockWriteGuard<'_, T0>> {
+        self.inner.single_data.try_write()
+    }
+
     #[inline]
     pub fn read_multiple(&self, offset: usize) -> RwLockReadGuard<'_, T1> {
         debug_assert!(offset > 0);

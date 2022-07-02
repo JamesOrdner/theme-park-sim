@@ -26,11 +26,11 @@ impl Pipeline {
             .map_err(Error::msg)?;
 
         let vertex_function = library
-            .get_function("vertexShader", None)
+            .get_function("vertex_shader", None)
             .map_err(Error::msg)?;
 
         let fragment_function = library
-            .get_function("fragmentShader", None)
+            .get_function("fragment_shader", None)
             .map_err(Error::msg)?;
 
         let pipeline_descriptor = RenderPipelineDescriptor::new();

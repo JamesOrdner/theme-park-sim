@@ -5,6 +5,9 @@ use system_interfaces::SystemData;
 use task_executor::task::parallel;
 use winit::window::Window;
 
+#[cfg(target_vendor = "apple")]
+use metal::GpuComputeData;
+
 pub struct FrameUpdate {
     pub audio: system_audio::FrameData,
     pub camera: system_camera::FrameData,
@@ -54,10 +57,14 @@ impl FrameUpdate {
         &mut self,
         event_delegate: &AsyncEventDelegate<'_>,
         frame_buffer: &AsyncFrameBufferDelegate<'_>,
-        delta_time: f32,
+        gpu_compute_data: &GpuComputeData,
     ) {
+        let guest_compute_data = gpu_compute_data.guest();
+
         let audio = self.audio.update(frame_buffer);
-        let guest = self.guest.update(event_delegate, frame_buffer, delta_time);
+        let guest = self
+            .guest
+            .update(event_delegate, frame_buffer, &guest_compute_data);
         let navigation = self.navigation.update(event_delegate);
         let network = self.network.update(event_delegate);
         let static_mesh = self.static_mesh.update(event_delegate, frame_buffer);

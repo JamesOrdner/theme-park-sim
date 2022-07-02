@@ -25,6 +25,12 @@ use metal::Metal;
 #[cfg(not(target_vendor = "apple"))]
 use vulkan::Vulkan;
 
+#[cfg(target_vendor = "apple")]
+type GpuComputeData = metal::GpuComputeData;
+
+#[cfg(not(target_vendor = "apple"))]
+type GpuComputeData = vulkan::GpuComputeData;
+
 pub struct GameEngine {
     task_executor: TaskExecutor,
     event_manager: EventManager,
@@ -41,6 +47,12 @@ pub struct GameEngine {
 
     #[cfg(not(target_vendor = "apple"))]
     graphics: std::mem::ManuallyDrop<Vulkan>,
+
+    #[cfg(target_vendor = "apple")]
+    gpu_compute_data: GpuComputeData,
+
+    #[cfg(not(target_vendor = "apple"))]
+    gpu_compute_data: std::mem::ManuallyDrop<GpuComputeData>,
 }
 
 impl GameEngine {
@@ -57,18 +69,20 @@ impl GameEngine {
             frame_buffer_manager.assign_thread_frame_buffer(thread_index);
         });
 
+        #[cfg(target_vendor = "apple")]
+        let (graphics, gpu_compute_data) = Metal::new(window).unwrap();
+
+        #[cfg(not(target_vendor = "apple"))]
+        let (graphics, gpu_compute_data) =
+            std::mem::ManuallyDrop::new(Vulkan::new(window).unwrap());
+
         let system_data = system_data();
+
         let frame_update = FrameUpdate::new(&system_data, window);
         let fixed_update = FixedUpdate::new(update_buffer);
         let game_controller = GameController::new(system_data.physics.into());
 
         let input = GameInput::new(window.inner_size());
-
-        #[cfg(target_vendor = "apple")]
-        let graphics = Metal::new(window).unwrap();
-
-        #[cfg(not(target_vendor = "apple"))]
-        let graphics = std::mem::ManuallyDrop::new(Vulkan::new(window).unwrap());
 
         Self {
             task_executor,
@@ -81,6 +95,7 @@ impl GameEngine {
             last_fixed_update_instant: Instant::now(),
             last_frame_update_instant: Instant::now(),
             graphics,
+            gpu_compute_data,
         }
     }
 }
@@ -185,24 +200,31 @@ impl GameEngine {
     }
 
     fn update_and_render_frame(&mut self, delta_time: f32) {
+        self.gpu_compute_data.swap();
+
         let frame_buffer_delegate = self.frame_buffer_manager.async_delegate();
         let frame_buffer_reader = frame_buffer_delegate.reader();
         let event_delegate = self.event_manager.async_delegate();
 
         let frame_task = async {
-            let frame_update_task =
-                self.frame_update
-                    .update_async(&event_delegate, &frame_buffer_delegate, delta_time);
+            let frame_update = self.frame_update.update_async(
+                &event_delegate,
+                &frame_buffer_delegate,
+                &self.gpu_compute_data,
+            );
 
-            let graphics_task = self.graphics.frame(&frame_buffer_reader, delta_time);
+            let graphics_update =
+                self.graphics
+                    .frame(&frame_buffer_reader, &self.gpu_compute_data, delta_time);
 
-            pin_mut!(frame_update_task);
-            pin_mut!(graphics_task);
+            pin_mut!(frame_update);
+            pin_mut!(graphics_update);
 
-            parallel([frame_update_task, graphics_task]).await;
+            parallel([frame_update, graphics_update]).await;
         };
 
         pin_mut!(frame_task);
+
         self.task_executor.execute_blocking(frame_task);
     }
 }

@@ -16,3 +16,4 @@ winit = "0.26.1"
 
 frame_buffer = { path = "../frame_buffer" }
 game_entity = { path = "../game_entity" }
+gpu_compute_data = { path = "../gpu_compute_data" }
