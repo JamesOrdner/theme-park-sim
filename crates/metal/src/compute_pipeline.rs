@@ -8,7 +8,7 @@ pub struct ComputePipeline {
 }
 
 impl ComputePipeline {
-    pub fn new(name: &str, device: &Device) -> Result<Self> {
+    pub fn new(name: &str, function: &str, device: &Device) -> Result<Self> {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../res/shaders")
             .join(name)
@@ -22,7 +22,7 @@ impl ComputePipeline {
         let function = device
             .new_library_with_source(&source, &compile_options)
             .map_err(Error::msg)?
-            .get_function("update_guest_locations", None)
+            .get_function(function, None)
             .map_err(Error::msg)?;
 
         let state = device

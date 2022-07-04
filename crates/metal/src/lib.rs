@@ -9,9 +9,9 @@ use core_graphics_types::geometry::CGSize;
 use frame_buffer::FrameBufferReader;
 use game_entity::EntityId;
 use metal::{
-    Buffer, CommandQueue, Device, MTLClearColor, MTLDispatchType, MTLIndexType, MTLLoadAction,
-    MTLPixelFormat, MTLPrimitiveType, MTLResourceOptions, MTLSize, MetalLayer, NSRange, NSUInteger,
-    RenderPassDescriptor,
+    Buffer, CommandQueue, Device, Fence, MTLClearColor, MTLDispatchType, MTLIndexType,
+    MTLLoadAction, MTLPixelFormat, MTLPrimitiveType, MTLRenderStages, MTLResourceOptions, MTLSize,
+    MetalLayer, NSUInteger, RenderPassDescriptor,
 };
 use nalgebra_glm::{look_at_lh, perspective_lh_zo, translate, Mat4, Vec3};
 use objc::{rc::autoreleasepool, runtime::YES};
@@ -36,7 +36,9 @@ pub struct Metal {
     layer: MetalLayer,
     queue: CommandQueue,
     pipeline: Pipeline,
-    compute_pipeline: ComputePipeline,
+    compute_frame_updates: ComputePipeline,
+    compute_guest_locations: ComputePipeline,
+    compute_fence: Fence,
     aspect: f32,
     static_meshes: HashMap<EntityId, StaticMesh>,
     guests: Vec<(EntityId, StaticMesh)>,
@@ -69,8 +71,15 @@ impl Metal {
             let pipeline = Pipeline::new("default", &device)
                 .context("pipeline creation failed for: default")?;
 
-            let compute_pipeline = ComputePipeline::new("guests", &device)
-                .context("pipeline creation failed for: guests")?;
+            let compute_frame_updates =
+                ComputePipeline::new("guests", "update_guest_velocities", &device)
+                    .context("pipeline creation failed for: update_guest_velocities")?;
+
+            let compute_guest_locations =
+                ComputePipeline::new("guests", "update_guest_locations", &device)
+                    .context("pipeline creation failed for: update_guest_locations")?;
+
+            let compute_fence = device.new_fence();
 
             let aspect = size.width as f32 / size.height as f32;
 
@@ -79,7 +88,9 @@ impl Metal {
                 layer,
                 queue,
                 pipeline,
-                compute_pipeline,
+                compute_frame_updates,
+                compute_guest_locations,
+                compute_fence,
                 aspect,
                 static_meshes: HashMap::new(),
                 guests: Vec::new(),
@@ -101,6 +112,15 @@ impl Metal {
     }
 
     pub async fn frame(
+        &mut self,
+        frame_buffer: &FrameBufferReader<'_>,
+        compute_data: &GpuComputeData,
+        delta_time: f32,
+    ) {
+        autoreleasepool(|| self.frame_autorelease(frame_buffer, compute_data, delta_time));
+    }
+
+    fn frame_autorelease(
         &mut self,
         frame_buffer: &FrameBufferReader<'_>,
         compute_data: &GpuComputeData,
@@ -131,42 +151,22 @@ impl Metal {
             }
         }
 
-        for (entity_id, location, speed) in frame_buffer.guest_goals() {
-            if let Some((i, _)) = self
+        for (update_index, (entity_id, location, speed)) in frame_buffer.guest_goals().enumerate() {
+            if let Some((instance_index, _)) = self
                 .guests
                 .iter_mut()
                 .enumerate()
                 .find(|(_, (eid, _))| eid == entity_id)
             {
                 unsafe {
-                    compute_data.guest().set_velocity(i, *location, *speed);
+                    compute_data.guest().set_velocity(
+                        update_index,
+                        instance_index,
+                        *location,
+                        *speed,
+                    );
                 }
             }
-        }
-
-        if !self.guests.is_empty() {
-            autoreleasepool(|| {
-                let cmd_buf = self.queue.new_command_buffer();
-                let encoder =
-                    cmd_buf.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial);
-                encoder.set_compute_pipeline_state(&self.compute_pipeline.state);
-                encoder.set_bytes(
-                    0,
-                    mem::size_of::<f32>() as u64,
-                    &delta_time as *const _ as *const _,
-                );
-                encoder.set_buffer(1, Some(compute_data.guest().locations()), 0);
-                encoder.set_buffer(2, Some(compute_data.guest().gpu_velocities()), 0);
-                encoder.set_buffer(3, Some(compute_data.guest().gpu_locations_mut()), 0);
-
-                encoder.dispatch_threads(
-                    MTLSize::new(self.guests.len() as u64, 1, 1),
-                    MTLSize::new(1, 1, 1),
-                );
-                encoder.end_encoding();
-                cmd_buf.commit();
-                cmd_buf.wait_until_completed();
-            });
         }
 
         #[repr(C)]
@@ -191,93 +191,131 @@ impl Metal {
             ProjView { proj, view }
         };
 
-        autoreleasepool(|| {
-            let drawable = self.layer.next_drawable().unwrap();
+        let cmd_buf = self.queue.new_command_buffer();
 
-            let descriptor = RenderPassDescriptor::new();
+        // compute encoder
 
-            let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
-            color_attachment.set_texture(Some(drawable.texture()));
-            color_attachment.set_load_action(MTLLoadAction::Clear);
-            color_attachment.set_clear_color(MTLClearColor::new(0.0, 0.0, 0.0, 1.0));
+        let encoder = cmd_buf.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial);
 
-            let cmd_buf = self.queue.new_command_buffer();
-            let encoder = cmd_buf.new_render_command_encoder(descriptor);
+        let goal_updates_len = frame_buffer.guest_goals().count();
+        if goal_updates_len > 0 {
+            encoder.set_compute_pipeline_state(&self.compute_frame_updates.state);
+            encoder.set_buffer(0, Some(compute_data.guest().frame_updates()), 0);
+            encoder.set_buffer(1, Some(compute_data.guest().velocities()), 0);
+            encoder.dispatch_threads(
+                MTLSize::new(goal_updates_len as u64, 1, 1),
+                MTLSize::new(1, 1, 1),
+            );
+        }
 
-            if !self.static_meshes.is_empty() {
-                encoder.set_render_pipeline_state(&self.pipeline.state);
+        if !self.guests.is_empty() {
+            encoder.set_compute_pipeline_state(&self.compute_guest_locations.state);
+            encoder.set_bytes(
+                0,
+                mem::size_of::<f32>() as u64,
+                &delta_time as *const _ as *const _,
+            );
+            encoder.set_buffer(1, Some(compute_data.guest().velocities()), 0);
+            // we're encoding next frame, which will read from current gpu_locations
+            encoder.set_buffer(2, Some(compute_data.guest().gpu_locations()), 0);
+            encoder.set_buffer(3, Some(compute_data.guest().locations()), 0);
+
+            encoder.dispatch_threads(
+                MTLSize::new(self.guests.len() as u64, 1, 1),
+                MTLSize::new(1, 1, 1),
+            );
+        }
+
+        encoder.update_fence(&self.compute_fence);
+        encoder.end_encoding();
+
+        // render encoder
+
+        let drawable = self.layer.next_drawable().unwrap();
+
+        let descriptor = RenderPassDescriptor::new();
+        let color_attachment = descriptor.color_attachments().object_at(0).unwrap();
+        color_attachment.set_texture(Some(drawable.texture()));
+        color_attachment.set_load_action(MTLLoadAction::Clear);
+        color_attachment.set_clear_color(MTLClearColor::new(0.0, 0.0, 0.0, 1.0));
+
+        let encoder = cmd_buf.new_render_command_encoder(descriptor);
+        encoder.wait_for_fence(&self.compute_fence, MTLRenderStages::Vertex);
+
+        if !self.static_meshes.is_empty() {
+            encoder.set_render_pipeline_state(&self.pipeline.state);
+            encoder.set_vertex_bytes(
+                1,
+                mem::size_of_val(&proj_view) as u64,
+                &proj_view as *const _ as *const _,
+            );
+
+            encoder.set_vertex_buffer(3, Some(compute_data.guest().locations()), 0);
+
+            for static_mesh in self.static_meshes.values() {
+                let model = translate(&Mat4::identity(), &static_mesh.location);
                 encoder.set_vertex_bytes(
-                    1,
-                    mem::size_of_val(&proj_view) as u64,
-                    &proj_view as *const _ as *const _,
+                    2,
+                    mem::size_of_val(&model) as u64,
+                    &model as *const _ as *const _,
                 );
-
-                encoder.set_vertex_buffer(3, Some(compute_data.guest().gpu_locations_mut()), 0);
-
-                for static_mesh in self.static_meshes.values() {
-                    let model = translate(&Mat4::identity(), &static_mesh.location);
-                    encoder.set_vertex_bytes(
-                        2,
-                        mem::size_of_val(&model) as u64,
-                        &model as *const _ as *const _,
-                    );
-                    encoder.set_vertex_buffer(
-                        0,
-                        Some(&static_mesh.buffer),
-                        static_mesh.locations_offset,
-                    );
-                    encoder.draw_indexed_primitives(
-                        MTLPrimitiveType::Triangle,
-                        3,
-                        MTLIndexType::UInt16,
-                        &static_mesh.buffer,
-                        0,
-                    );
-                }
+                encoder.set_vertex_buffer(
+                    0,
+                    Some(&static_mesh.buffer),
+                    static_mesh.locations_offset,
+                );
+                encoder.draw_indexed_primitives(
+                    MTLPrimitiveType::Triangle,
+                    3,
+                    MTLIndexType::UInt16,
+                    &static_mesh.buffer,
+                    0,
+                );
             }
+        }
 
-            if !self.guests.is_empty() {
-                encoder.set_render_pipeline_state(&self.pipeline.state);
+        if !self.guests.is_empty() {
+            encoder.set_render_pipeline_state(&self.pipeline.state);
+            encoder.set_vertex_bytes(
+                1,
+                mem::size_of_val(&proj_view) as u64,
+                &proj_view as *const _ as *const _,
+            );
+
+            encoder.set_vertex_buffer(3, Some(compute_data.guest().locations()), 0);
+
+            for (i, (_, static_mesh)) in self.guests.iter().enumerate() {
+                let model = translate(&Mat4::identity(), &static_mesh.location);
                 encoder.set_vertex_bytes(
-                    1,
-                    mem::size_of_val(&proj_view) as u64,
-                    &proj_view as *const _ as *const _,
+                    2,
+                    mem::size_of_val(&model) as u64,
+                    &model as *const _ as *const _,
                 );
-
-                encoder.set_vertex_buffer(3, Some(compute_data.guest().gpu_locations_mut()), 0);
-
-                for (i, (_, static_mesh)) in self.guests.iter().enumerate() {
-                    let model = translate(&Mat4::identity(), &static_mesh.location);
-                    encoder.set_vertex_bytes(
-                        2,
-                        mem::size_of_val(&model) as u64,
-                        &model as *const _ as *const _,
-                    );
-                    encoder.set_vertex_buffer(
-                        0,
-                        Some(&static_mesh.buffer),
-                        static_mesh.locations_offset,
-                    );
-                    let i = i as u16;
-                    encoder.set_vertex_bytes(
-                        4,
-                        mem::size_of::<u16>() as u64,
-                        &i as *const _ as *const _,
-                    );
-                    encoder.draw_indexed_primitives(
-                        MTLPrimitiveType::Triangle,
-                        3,
-                        MTLIndexType::UInt16,
-                        &static_mesh.buffer,
-                        0,
-                    );
-                }
+                encoder.set_vertex_buffer(
+                    0,
+                    Some(&static_mesh.buffer),
+                    static_mesh.locations_offset,
+                );
+                let i = i as u16;
+                encoder.set_vertex_bytes(
+                    4,
+                    mem::size_of::<u16>() as u64,
+                    &i as *const _ as *const _,
+                );
+                encoder.draw_indexed_primitives(
+                    MTLPrimitiveType::Triangle,
+                    3,
+                    MTLIndexType::UInt16,
+                    &static_mesh.buffer,
+                    0,
+                );
             }
+        }
 
-            encoder.end_encoding();
-            cmd_buf.present_drawable(drawable);
-            cmd_buf.commit();
-        });
+        encoder.end_encoding();
+
+        cmd_buf.present_drawable(drawable);
+        cmd_buf.commit();
     }
 
     fn spawn_static_mesh(&mut self) -> StaticMesh {
@@ -290,7 +328,7 @@ impl Metal {
 
         let buffer = self
             .device
-            .new_buffer(size, MTLResourceOptions::StorageModeManaged);
+            .new_buffer(size, MTLResourceOptions::StorageModeShared);
 
         unsafe {
             let data = buffer.contents();
@@ -302,11 +340,6 @@ impl Metal {
             let vertex_slice = slice::from_raw_parts_mut(data as *mut f32, vertex_data.len());
             vertex_slice.copy_from_slice(&vertex_data);
         }
-
-        buffer.did_modify_range(NSRange {
-            location: 0,
-            length: size,
-        });
 
         StaticMesh {
             buffer,
