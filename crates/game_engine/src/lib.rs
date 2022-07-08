@@ -206,25 +206,31 @@ impl GameEngine {
         let frame_buffer_reader = frame_buffer_delegate.reader();
         let event_delegate = self.event_manager.async_delegate();
 
-        let frame_task = async {
-            let frame_update = self.frame_update.update_async(
-                &event_delegate,
-                &frame_buffer_delegate,
-                &self.gpu_compute_data,
-            );
+        {
+            let frame_task = async {
+                let frame_update = self.frame_update.update_async(
+                    &event_delegate,
+                    &frame_buffer_delegate,
+                    &self.gpu_compute_data,
+                );
 
-            let graphics_update =
-                self.graphics
-                    .frame(&frame_buffer_reader, &self.gpu_compute_data, delta_time);
+                let graphics_update = self.graphics.prepare_frame(
+                    &frame_buffer_reader,
+                    &self.gpu_compute_data,
+                    delta_time,
+                );
 
-            pin_mut!(frame_update);
-            pin_mut!(graphics_update);
+                pin_mut!(frame_update);
+                pin_mut!(graphics_update);
 
-            parallel([frame_update, graphics_update]).await;
-        };
+                parallel([frame_update, graphics_update]).await;
+            };
 
-        pin_mut!(frame_task);
+            pin_mut!(frame_task);
 
-        self.task_executor.execute_blocking(frame_task);
+            self.task_executor.execute_blocking(frame_task);
+        }
+
+        self.graphics.submit_frame();
     }
 }

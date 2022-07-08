@@ -9,9 +9,9 @@ use core_graphics_types::geometry::CGSize;
 use frame_buffer::FrameBufferReader;
 use game_entity::EntityId;
 use metal::{
-    Buffer, CommandQueue, Device, Fence, MTLClearColor, MTLDispatchType, MTLIndexType,
-    MTLLoadAction, MTLPixelFormat, MTLPrimitiveType, MTLRenderStages, MTLResourceOptions, MTLSize,
-    MetalLayer, NSUInteger, RenderPassDescriptor,
+    Buffer, CommandBuffer, CommandQueue, Device, Fence, MTLClearColor, MTLDispatchType,
+    MTLIndexType, MTLLoadAction, MTLPixelFormat, MTLPrimitiveType, MTLRenderStages,
+    MTLResourceOptions, MTLSize, MetalLayer, NSUInteger, RenderPassDescriptor,
 };
 use nalgebra_glm::{look_at_lh, perspective_lh_zo, translate, Mat4, Vec3};
 use objc::{rc::autoreleasepool, runtime::YES};
@@ -42,6 +42,7 @@ pub struct Metal {
     aspect: f32,
     static_meshes: HashMap<EntityId, StaticMesh>,
     guests: Vec<(EntityId, StaticMesh)>,
+    cmd_buf: Option<CommandBuffer>,
 }
 
 unsafe impl Send for Metal {}
@@ -56,6 +57,7 @@ impl Metal {
             layer.set_device(&device);
             layer.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
             layer.set_framebuffer_only(true);
+            layer.set_maximum_drawable_count(2);
 
             unsafe {
                 let view = window.ns_view() as cocoa_id;
@@ -66,7 +68,7 @@ impl Metal {
             let size = window.inner_size();
             layer.set_drawable_size(CGSize::new(size.width as f64, size.height as f64));
 
-            let queue = device.new_command_queue();
+            let queue = device.new_command_queue_with_max_command_buffer_count(2);
 
             let pipeline = Pipeline::new("default", &device)
                 .context("pipeline creation failed for: default")?;
@@ -94,6 +96,7 @@ impl Metal {
                 aspect,
                 static_meshes: HashMap::new(),
                 guests: Vec::new(),
+                cmd_buf: None,
             };
 
             let compute_data = GpuComputeData::new(&metal.device);
@@ -111,7 +114,7 @@ impl Metal {
         self.aspect = size.width as f32 / size.height as f32;
     }
 
-    pub async fn frame(
+    pub async fn prepare_frame(
         &mut self,
         frame_buffer: &FrameBufferReader<'_>,
         compute_data: &GpuComputeData,
@@ -315,7 +318,14 @@ impl Metal {
         encoder.end_encoding();
 
         cmd_buf.present_drawable(drawable);
-        cmd_buf.commit();
+        self.cmd_buf = Some(cmd_buf.to_owned());
+    }
+
+    pub fn submit_frame(&mut self) {
+        autoreleasepool(|| {
+            let cmd_buf = self.cmd_buf.take().unwrap();
+            cmd_buf.commit();
+        });
     }
 
     fn spawn_static_mesh(&mut self) -> StaticMesh {
